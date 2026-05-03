@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { MessageSquare, BarChart3, Zap, Search, Settings, LogOut, LogIn, ShieldCheck } from 'lucide-react';
+import { MessageSquare, BarChart3, Zap, Search, LogOut, LogIn, ShieldCheck, Menu, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import ConversationHistory from './ConversationHistory';
 import { useState } from 'react';
@@ -15,24 +16,26 @@ const NAV_TOP = [
 ];
 
 export default function Sidebar() {
-  const pathname   = usePathname();
-  const router     = useRouter();
+  const pathname  = usePathname();
+  const router    = useRouter();
   const { user, isAuthenticated, signOut, loading } = useAuth();
-  const [newChatKey, setNewChatKey] = useState(0);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  const ADMIN_EMAIL = 'yobra194@gmail.com'; // or read from env
+  const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'yobra194@gmail.com';
   const isAdmin = user?.email === ADMIN_EMAIL;
 
   const handleNewChat = () => {
-    setNewChatKey(k => k + 1);
+    setMobileOpen(false);
     router.push('/chat');
   };
 
-  return (
-    <aside className="w-56 flex-shrink-0 h-full border-r border-brand-border bg-brand-surface flex flex-col">
+  const handleNavClick = () => setMobileOpen(false);
+
+  const sidebarContent = (
+    <aside className="w-56 h-full border-r border-brand-border bg-brand-surface flex flex-col">
 
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-brand-border">
+      <div className="px-4 py-4 border-b border-brand-border flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-green to-brand-blue flex items-center justify-center shadow-[0_0_12px_rgba(0,255,136,0.4)]">
             <Zap className="w-4 h-4 text-black" />
@@ -42,32 +45,40 @@ export default function Sidebar() {
             <div className="font-mono text-[9px] text-brand-muted tracking-widest">CRYPTO AGENT</div>
           </div>
         </div>
+        {/* Close button — mobile only */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden text-brand-muted hover:text-brand-text transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Nav */}
       <nav className="px-3 pt-3 pb-1 space-y-0.5">
         {NAV_TOP
-        .filter(item => !item.adminOnly || isAdmin)
-        .map(({ href, icon: Icon, label }) => {
-          const active = pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`
-                flex items-center gap-2.5 px-3 py-2 rounded-lg font-mono text-xs transition-all duration-150
-                ${active
-                  ? 'bg-[rgba(0,255,136,0.1)] text-brand-green border border-[rgba(0,255,136,0.2)]'
-                  : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.03)]'
-                }
-              `}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
-              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-green shadow-[0_0_6px_rgba(0,255,136,0.8)]" />}
-            </Link>
-          );
-        })}
+          .filter(item => !item.adminOnly || isAdmin)
+          .map(({ href, icon: Icon, label }) => {
+            const active = pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={handleNavClick}
+                className={`
+                  flex items-center gap-2.5 px-3 py-2 rounded-lg font-mono text-xs transition-all duration-150
+                  ${active
+                    ? 'bg-[rgba(0,255,136,0.1)] text-brand-green border border-[rgba(0,255,136,0.2)]'
+                    : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.03)]'
+                  }
+                `}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-green shadow-[0_0_6px_rgba(0,255,136,0.8)]" />}
+              </Link>
+            );
+          })}
       </nav>
 
       {/* Conversation history */}
@@ -83,7 +94,13 @@ export default function Sidebar() {
           <div className="space-y-1">
             <div className="flex items-center gap-2 px-2 py-1">
               {user.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} className="w-6 h-6 rounded-full" alt="" />
+                <Image
+                  src={user.user_metadata.avatar_url}
+                  width={24}
+                  height={24}
+                  className="rounded-full"
+                  alt="User avatar"
+                />
               ) : (
                 <div className="w-6 h-6 rounded-full bg-brand-green flex items-center justify-center text-black text-[10px] font-bold">
                   {user.email?.[0]?.toUpperCase()}
@@ -94,7 +111,7 @@ export default function Sidebar() {
               </span>
             </div>
             <button
-              onClick={() => signOut()}
+              onClick={() => { signOut(); setMobileOpen(false); }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg font-mono text-[11px] text-brand-muted hover:text-red-400 hover:bg-red-950/30 transition-all"
             >
               <LogOut className="w-3 h-3" />
@@ -104,6 +121,7 @@ export default function Sidebar() {
         ) : (
           <Link
             href="/login"
+            onClick={handleNavClick}
             className="flex items-center gap-2 px-3 py-2 rounded-lg font-mono text-xs text-brand-muted hover:text-brand-green hover:bg-[rgba(0,255,136,0.05)] border border-brand-border hover:border-brand-dim transition-all"
           >
             <LogIn className="w-3.5 h-3.5" />
@@ -112,5 +130,42 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
+  );
+
+  return (
+    <>
+      {/* ── Desktop: static sidebar ───────────────────────────────────────── */}
+      <div className="hidden md:flex flex-shrink-0 h-full">
+        {sidebarContent}
+      </div>
+
+      {/* ── Mobile: hamburger button (top-left, fixed) ────────────────────── */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-3 left-3 z-40 p-2 rounded-lg bg-brand-surface border border-brand-border text-brand-muted hover:text-brand-green transition-colors shadow-lg"
+        aria-label="Open menu"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
+
+      {/* ── Mobile: backdrop ──────────────────────────────────────────────── */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* ── Mobile: slide-in drawer ───────────────────────────────────────── */}
+      <div
+        className={`
+          md:hidden fixed top-0 left-0 z-50 h-full
+          transform transition-transform duration-[250ms] ease-in-out
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        {sidebarContent}
+      </div>
+    </>
   );
 }
