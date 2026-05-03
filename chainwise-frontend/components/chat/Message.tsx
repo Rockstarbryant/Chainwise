@@ -11,7 +11,7 @@ interface Props {
 
 export default function Message({ message }: Props) {
   const isUser = message.role === 'user';
-  const uniqueTools = [...new Set((message.toolsUsed || []).map(t => t.tool))];
+  const uniqueTools = Array.from(new Set((message.toolsUsed || []).map(t => t.tool)));
 
   return (
     <div className={`flex gap-3 animate-fade-up ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
