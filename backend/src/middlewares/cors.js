@@ -5,6 +5,7 @@ const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:3001',
+  'https://chainwise-seven.vercel.app',
   // Add production domains here
 ].filter(Boolean);
 
