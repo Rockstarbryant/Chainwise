@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --scrollbar-thumb: #1a2e1a;
+  --scrollbar-track: transparent;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html, body {
+  height: 100%;
+  background-color: #080d08;
+  color: #c8e6c9;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1a2e1a; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00cc6a55; }
+
+/* Markdown rendered inside messages */
+.prose-chainwise {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.75;
+  color: #c8e6c9;
+}
+.prose-chainwise h1,
+.prose-chainwise h2,
+.prose-chainwise h3 {
+  color: #00ff88;
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+.prose-chainwise strong { color: #00ff88; }
+.prose-chainwise code {
+  background: rgba(0,255,136,0.08);
+  border: 1px solid rgba(0,255,136,0.15);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  color: #00ff88;
+}
+.prose-chainwise pre {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid #1a2e1a;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.prose-chainwise pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #a5d6a7;
+}
+.prose-chainwise ol,
+.prose-chainwise ul {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.prose-chainwise li { margin: 4px 0; }
+.prose-chainwise li::marker { color: #00cc6a; }
+.prose-chainwise a { color: #00aaff; text-decoration: underline; }
+.prose-chainwise hr {
+  border-color: #1a2e1a;
+  margin: 12px 0;
+}
+.prose-chainwise blockquote {
+  border-left: 3px solid #00ff8855;
+  padding-left: 12px;
+  color: #81c784;
+  margin: 8px 0;
+}
+.prose-chainwise table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.prose-chainwise th {
+  background: rgba(0,255,136,0.08);
+  color: #00ff88;
+  padding: 6px 10px;
+  text-align: left;
+  border: 1px solid #1a2e1a;
+  font-weight: 600;
+}
+.prose-chainwise td {
+  padding: 5px 10px;
+  border: 1px solid #1a2e1a;
+  color: #c8e6c9;
+}
+.prose-chainwise tr:nth-child(even) td {
+  background: rgba(255,255,255,0.02);
+}
