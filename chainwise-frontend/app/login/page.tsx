@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
@@ -44,30 +44,29 @@ const OAUTH_PROVIDERS = [
 
 type Tab = 'oauth' | 'signin' | 'signup';
 
-export default function LoginPage() {
+// ── Inner component — uses useSearchParams, must be inside Suspense ──────────
+function LoginForm() {
   const { signIn }    = useAuth();
   const supabase      = createClient();
   const searchParams  = useSearchParams();
   const redirectMsg   = searchParams.get('message');
   const authError     = searchParams.get('error');
 
-  const [tab, setTab]                       = useState<Tab>('oauth');
+  const [tab, setTab]                         = useState<Tab>('oauth');
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
-  const [email, setEmail]                   = useState('');
-  const [password, setPassword]             = useState('');
-  const [showPassword, setShowPassword]     = useState(false);
-  const [formLoading, setFormLoading]       = useState(false);
-  const [formError, setFormError]           = useState('');
-  const [formSuccess, setFormSuccess]       = useState('');
+  const [email, setEmail]                     = useState('');
+  const [password, setPassword]               = useState('');
+  const [showPassword, setShowPassword]       = useState(false);
+  const [formLoading, setFormLoading]         = useState(false);
+  const [formError, setFormError]             = useState('');
+  const [formSuccess, setFormSuccess]         = useState('');
 
-  // ── OAuth ──────────────────────────────────────────────────────────────────
   const handleOAuth = async (provider: string) => {
     setLoadingProvider(provider);
-    try { await signIn(provider as any); }
+    try { await signIn(provider as Parameters<typeof signIn>[0]); }
     catch { setLoadingProvider(null); }
   };
 
-  // ── Email sign in ──────────────────────────────────────────────────────────
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -76,14 +75,13 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       window.location.href = '/chat';
-    } catch (err: any) {
-      setFormError(err.message || 'Sign in failed');
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : 'Sign in failed');
     } finally {
       setFormLoading(false);
     }
   };
 
-  // ── Email sign up ──────────────────────────────────────────────────────────
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -98,121 +96,185 @@ export default function LoginPage() {
       setFormSuccess('Account created! Check your email to verify before signing in.');
       setEmail('');
       setPassword('');
-    } catch (err: any) {
-      setFormError(err.message || 'Sign up failed');
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : 'Sign up failed');
     } finally {
       setFormLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg flex items-center justify-center px-4">
-      <motion.div
-        className="w-full max-w-sm"
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-green to-brand-blue mb-4 shadow-[0_0_30px_rgba(0,255,136,0.3)]">
-            <Zap className="w-7 h-7 text-black" />
-          </div>
-          <h1 className="font-mono font-bold text-2xl text-brand-green tracking-[0.2em]">CHAINWISE</h1>
-          <p className="font-mono text-xs text-brand-muted mt-1 tracking-widest">CRYPTO ROUTING AGENT</p>
+    <motion.div
+      className="w-full max-w-sm"
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-green to-brand-blue mb-4 shadow-[0_0_30px_rgba(0,255,136,0.3)]">
+          <Zap className="w-7 h-7 text-black" />
+        </div>
+        <h1 className="font-mono font-bold text-2xl text-brand-green tracking-[0.2em]">CHAINWISE</h1>
+        <p className="font-mono text-xs text-brand-muted mt-1 tracking-widest">CRYPTO ROUTING AGENT</p>
+      </div>
+
+      {/* Banners */}
+      {redirectMsg && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-brand-green/10 border border-brand-green/20 text-brand-green font-mono text-xs text-center">
+          {redirectMsg}
+        </div>
+      )}
+      {authError && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-red-950 border border-red-800 text-red-400 font-mono text-xs text-center">
+          Authentication failed. Please try again.
+        </div>
+      )}
+
+      {/* Card */}
+      <div className="bg-brand-surface border border-brand-border rounded-2xl overflow-hidden">
+
+        {/* Tab switcher */}
+        <div className="grid grid-cols-3 border-b border-brand-border">
+          {([
+            { id: 'oauth',  label: 'Social'  },
+            { id: 'signin', label: 'Sign In' },
+            { id: 'signup', label: 'Sign Up' },
+          ] as { id: Tab; label: string }[]).map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setTab(t.id); setFormError(''); setFormSuccess(''); }}
+              className={`
+                py-3 font-mono text-xs tracking-widest transition-all duration-150
+                ${tab === t.id
+                  ? 'text-brand-green border-b-2 border-brand-green bg-[rgba(0,255,136,0.05)]'
+                  : 'text-brand-muted hover:text-brand-text'
+                }
+              `}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Banners */}
-        {redirectMsg && (
-          <div className="mb-4 px-4 py-3 rounded-xl bg-brand-green/10 border border-brand-green/20 text-brand-green font-mono text-xs text-center">
-            {redirectMsg}
-          </div>
-        )}
-        {authError && (
-          <div className="mb-4 px-4 py-3 rounded-xl bg-red-950 border border-red-800 text-red-400 font-mono text-xs text-center">
-            Authentication failed. Please try again.
-          </div>
-        )}
+        <div className="p-6">
+          <AnimatePresence mode="wait">
 
-        {/* Card */}
-        <div className="bg-brand-surface border border-brand-border rounded-2xl overflow-hidden">
-
-          {/* Tab switcher */}
-          <div className="grid grid-cols-3 border-b border-brand-border">
-            {([
-              { id: 'oauth',  label: 'Social'   },
-              { id: 'signin', label: 'Sign In'  },
-              { id: 'signup', label: 'Sign Up'  },
-            ] as { id: Tab; label: string }[]).map(t => (
-              <button
-                key={t.id}
-                onClick={() => { setTab(t.id); setFormError(''); setFormSuccess(''); }}
-                className={`
-                  py-3 font-mono text-xs tracking-widest transition-all duration-150
-                  ${tab === t.id
-                    ? 'text-brand-green border-b-2 border-brand-green bg-[rgba(0,255,136,0.05)]'
-                    : 'text-brand-muted hover:text-brand-text'
-                  }
-                `}
+            {/* SOCIAL TAB */}
+            {tab === 'oauth' && (
+              <motion.div
+                key="oauth"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.18 }}
               >
-                {t.label}
-              </button>
-            ))}
-          </div>
+                <p className="font-mono text-xs text-brand-muted text-center mb-5">
+                  Sign in with your social account
+                </p>
+                <div className="space-y-2.5">
+                  {OAUTH_PROVIDERS.map(({ id, label, Icon, border }) => (
+                    <button
+                      key={id}
+                      onClick={() => handleOAuth(id)}
+                      disabled={!!loadingProvider}
+                      className={`
+                        w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                        border border-brand-border font-mono text-xs text-brand-text
+                        transition-all duration-200 ${border}
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                      `}
+                    >
+                      {loadingProvider === id
+                        ? <div className="w-4 h-4 border-2 border-brand-green/30 border-t-brand-green rounded-full animate-spin" />
+                        : <Icon />
+                      }
+                      {loadingProvider === id ? 'Redirecting...' : `Continue with ${label}`}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
-          <div className="p-6">
-            <AnimatePresence mode="wait">
-
-              {/* ── SOCIAL TAB ──────────────────────────────────────────── */}
-              {tab === 'oauth' && (
-                <motion.div
-                  key="oauth"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <p className="font-mono text-xs text-brand-muted text-center mb-5">
-                    Sign in with your social account
-                  </p>
-                  <div className="space-y-2.5">
-                    {OAUTH_PROVIDERS.map(({ id, label, Icon, border }) => (
-                      <button
-                        key={id}
-                        onClick={() => handleOAuth(id)}
-                        disabled={!!loadingProvider}
-                        className={`
-                          w-full flex items-center gap-3 px-4 py-3 rounded-xl
-                          border border-brand-border font-mono text-xs text-brand-text
-                          transition-all duration-200 ${border}
-                          disabled:opacity-50 disabled:cursor-not-allowed
-                        `}
-                      >
-                        {loadingProvider === id
-                          ? <div className="w-4 h-4 border-2 border-brand-green/30 border-t-brand-green rounded-full animate-spin" />
-                          : <Icon />
-                        }
-                        {loadingProvider === id ? 'Redirecting...' : `Continue with ${label}`}
-                      </button>
-                    ))}
+            {/* SIGN IN TAB */}
+            {tab === 'signin' && (
+              <motion.div
+                key="signin"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.18 }}
+              >
+                <p className="font-mono text-xs text-brand-muted text-center mb-5">
+                  Sign in with email and password
+                </p>
+                <form onSubmit={handleSignIn} className="space-y-3">
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="Email address"
+                      required
+                      className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-4 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
+                    />
                   </div>
-                </motion.div>
-              )}
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="Password"
+                      required
+                      className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-10 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-muted hover:text-brand-text transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {formError && (
+                    <p className="font-mono text-xs text-red-400 bg-red-950/50 border border-red-800/50 rounded-lg px-3 py-2">
+                      {formError}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={formLoading}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-brand-green to-brand-blue text-black font-mono font-bold text-sm disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all"
+                  >
+                    {formLoading
+                      ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                      : <><ArrowRight className="w-4 h-4" /> Sign In</>
+                    }
+                  </button>
+                </form>
+              </motion.div>
+            )}
 
-              {/* ── SIGN IN TAB ─────────────────────────────────────────── */}
-              {tab === 'signin' && (
-                <motion.div
-                  key="signin"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <p className="font-mono text-xs text-brand-muted text-center mb-5">
-                    Sign in with email and password
-                  </p>
-                  <form onSubmit={handleSignIn} className="space-y-3">
-                    {/* Email */}
+            {/* SIGN UP TAB */}
+            {tab === 'signup' && (
+              <motion.div
+                key="signup"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.18 }}
+              >
+                <p className="font-mono text-xs text-brand-muted text-center mb-5">
+                  Create a free account
+                </p>
+                {formSuccess ? (
+                  <div className="px-4 py-4 rounded-xl bg-brand-green/10 border border-brand-green/20 text-brand-green font-mono text-xs text-center leading-relaxed">
+                    ✓ {formSuccess}
+                  </div>
+                ) : (
+                  <form onSubmit={handleSignUp} className="space-y-3">
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
                       <input
@@ -224,14 +286,14 @@ export default function LoginPage() {
                         className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-4 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
                       />
                     </div>
-                    {/* Password */}
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
-                        placeholder="Password"
+                        placeholder="Password (min 6 characters)"
+                        minLength={6}
                         required
                         className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-10 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
                       />
@@ -243,13 +305,11 @@ export default function LoginPage() {
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-
                     {formError && (
                       <p className="font-mono text-xs text-red-400 bg-red-950/50 border border-red-800/50 rounded-lg px-3 py-2">
                         {formError}
                       </p>
                     )}
-
                     <button
                       type="submit"
                       disabled={formLoading}
@@ -257,92 +317,37 @@ export default function LoginPage() {
                     >
                       {formLoading
                         ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                        : <><ArrowRight className="w-4 h-4" /> Sign In</>
+                        : <><ArrowRight className="w-4 h-4" /> Create Account</>
                       }
                     </button>
                   </form>
-                </motion.div>
-              )}
+                )}
+              </motion.div>
+            )}
 
-              {/* ── SIGN UP TAB ─────────────────────────────────────────── */}
-              {tab === 'signup' && (
-                <motion.div
-                  key="signup"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <p className="font-mono text-xs text-brand-muted text-center mb-5">
-                    Create a free account
-                  </p>
-                  {formSuccess ? (
-                    <div className="px-4 py-4 rounded-xl bg-brand-green/10 border border-brand-green/20 text-brand-green font-mono text-xs text-center leading-relaxed">
-                      ✓ {formSuccess}
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSignUp} className="space-y-3">
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={e => setEmail(e.target.value)}
-                          placeholder="Email address"
-                          required
-                          className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-4 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
-                        />
-                      </div>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          value={password}
-                          onChange={e => setPassword(e.target.value)}
-                          placeholder="Password (min 6 characters)"
-                          minLength={6}
-                          required
-                          className="w-full bg-brand-bg border border-brand-border rounded-xl pl-10 pr-10 py-3 font-mono text-sm text-brand-text placeholder:text-brand-muted outline-none focus:border-brand-dim transition-colors"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(s => !s)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-muted hover:text-brand-text transition-colors"
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
+          </AnimatePresence>
 
-                      {formError && (
-                        <p className="font-mono text-xs text-red-400 bg-red-950/50 border border-red-800/50 rounded-lg px-3 py-2">
-                          {formError}
-                        </p>
-                      )}
-
-                      <button
-                        type="submit"
-                        disabled={formLoading}
-                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-brand-green to-brand-blue text-black font-mono font-bold text-sm disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-[0_0_20px_rgba(0,255,136,0.3)] transition-all"
-                      >
-                        {formLoading
-                          ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                          : <><ArrowRight className="w-4 h-4" /> Create Account</>
-                        }
-                      </button>
-                    </form>
-                  )}
-                </motion.div>
-              )}
-
-            </AnimatePresence>
-
-            <p className="font-mono text-[10px] text-brand-muted text-center mt-5 leading-relaxed">
-              By signing in you agree to our Terms of Service.
-              <br />Your data is never sold or shared.
-            </p>
-          </div>
+          <p className="font-mono text-[10px] text-brand-muted text-center mt-5 leading-relaxed">
+            By signing in you agree to our Terms of Service.
+            <br />Your data is never sold or shared.
+          </p>
         </div>
-      </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Page export — wraps LoginForm in Suspense ────────────────────────────────
+export default function LoginPage() {
+  return (
+    <div className="min-h-screen bg-brand-bg flex items-center justify-center px-4">
+      <Suspense fallback={
+        <div className="font-mono text-xs text-brand-muted animate-pulse tracking-widest">
+          LOADING...
+        </div>
+      }>
+        <LoginForm />
+      </Suspense>
     </div>
   );
 }
