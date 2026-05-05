@@ -22,7 +22,7 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production',
 }));
 app.use(corsMiddleware);
-app.options('*', corsMiddleware); // preflight
+app.options('*', corsMiddleware);
 
 // ── Performance ────────────────────────────────────────────────────────────
 app.use(compression());
@@ -37,7 +37,7 @@ app.use(requestLogger);
 // ── Global rate limit ──────────────────────────────────────────────────────
 app.use(general);
 
-// ── Health check (no rate limit, no auth) ─────────────────────────────────
+// ── Health check ───────────────────────────────────────────────────────────
 app.get('/health', (_, res) => {
   res.json({
     status: 'ok',
@@ -54,36 +54,49 @@ app.use('/api/conversations', conversationsRoute);
 app.use('/api/sync',          syncRoute);
 app.use('/api/admin',         adminRoute);
 
-// ── 404 + Global error handlers (must be last) ────────────────────────────
+// ── 404 + Global error handlers ───────────────────────────────────────────
 app.use(notFound);
 app.use(globalError);
 
-// ── Redis readiness check — polls until connected, then starts worker+cron ─
+// ── Redis readiness check ──────────────────────────────────────────────────
+// Uses a fresh throw-away connection per attempt so a closed singleton
+// never causes every retry to fail with "Connection is closed"
 const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
-  const { getCacheRedis } = require('./config/redis');
+  const { Redis } = require('ioredis');
+
+  const redisConfig = process.env.REDIS_URL
+    ? { url: process.env.REDIS_URL, maxRetriesPerRequest: 1, enableReadyCheck: false }
+    : {
+        host:                 process.env.REDIS_HOST || '127.0.0.1',
+        port:                 parseInt(process.env.REDIS_PORT || '6379'),
+        password:             process.env.REDIS_PASSWORD || undefined,
+        maxRetriesPerRequest: 1,
+        enableReadyCheck:     false,
+      };
 
   for (let i = 1; i <= retries; i++) {
+    let probe = null;
     try {
-      const redis = getCacheRedis();
-      await redis.ping(); // throws if not connected
-      logger.info('[startup] Redis is ready — starting BullMQ worker and cron');
+      probe = new Redis({ ...redisConfig, lazyConnect: true });
+      await probe.connect();
+      await probe.ping();
+      await probe.quit();
 
+      logger.info('[startup] Redis is ready — starting BullMQ worker and cron');
       const { startWorker } = require('./jobs/syncQueue');
       const { startCron }   = require('./jobs/cronJob');
       startWorker();
       startCron();
       logger.info('✓ BullMQ worker and hourly cron started');
-      return; // success — exit loop
+      return;
+
     } catch (err) {
+      try { if (probe) await probe.quit(); } catch (_) {}
       logger.warn(`[startup] Redis not ready (attempt ${i}/${retries}): ${err.message}`);
-      if (i < retries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
+      if (i < retries) await new Promise(r => setTimeout(r, delayMs));
     }
   }
 
-  // All retries exhausted — log warning but don't crash the HTTP server
-  // The app still works for fee lookups and AI agent; only auto-sync is affected
   logger.warn('[startup] Redis unavailable after all retries — worker/cron skipped. Agent + fees still operational.');
 };
 
@@ -94,24 +107,19 @@ let server;
 const start = async () => {
   await connectDB();
 
-  // Start HTTP server first so Render health check passes immediately
   server = app.listen(PORT, () => {
     logger.info(`⚡ ChainWise API  →  http://localhost:${PORT}`);
     logger.info(`   Health check   →  http://localhost:${PORT}/health`);
     logger.info(`   Environment    →  ${process.env.NODE_ENV || 'development'}`);
   });
 
-  // Start Redis-dependent services in background — won't block HTTP
+  // Non-blocking — HTTP is already up when this runs
   waitForRedisAndStartWorker();
 };
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 const shutdown = async (signal) => {
-  try {
-    const { stopCron } = require('./jobs/cronJob');
-    stopCron();
-  } catch (_) {}
-
+  try { const { stopCron } = require('./jobs/cronJob'); stopCron(); } catch (_) {}
   logger.info(`${signal} received — shutting down gracefully...`);
 
   server.close(async () => {
@@ -127,7 +135,6 @@ const shutdown = async (signal) => {
     }
   });
 
-  // Force exit after 10s if still hanging
   setTimeout(() => {
     logger.error('Forced exit after 10s timeout');
     process.exit(1);
@@ -136,7 +143,6 @@ const shutdown = async (signal) => {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT',  () => shutdown('SIGINT'));
-
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection:', { reason, promise });
 });
