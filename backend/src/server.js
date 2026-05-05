@@ -1,8 +1,8 @@
 require('dotenv').config();
-const express    = require('express');
-const helmet     = require('helmet');
+const express     = require('express');
+const helmet      = require('helmet');
 const compression = require('compression');
-const connectDB  = require('./config/db');
+const connectDB   = require('./config/db');
 const corsMiddleware  = require('./middlewares/cors');
 const requestLogger   = require('./middlewares/requestLogger');
 const { general }     = require('./middlewares/rateLimiter');
@@ -13,8 +13,6 @@ const adminRoute         = require('./routes/admin');
 const agentRoute = require('./routes/agent');
 const feesRoute  = require('./routes/fees');
 const syncRoute  = require('./routes/sync');
-const { startWorker } = require('./jobs/syncQueue');
-const { startCron }   = require('./jobs/cronJob');
 
 const app = express();
 
@@ -50,15 +48,44 @@ app.get('/health', (_, res) => {
 });
 
 // ── API routes ─────────────────────────────────────────────────────────────
-app.use('/api/agent', agentRoute);
-app.use('/api/fees',  feesRoute);
+app.use('/api/agent',         agentRoute);
+app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
-app.use('/api/sync', syncRoute);
+app.use('/api/sync',          syncRoute);
 app.use('/api/admin',         adminRoute);
 
 // ── 404 + Global error handlers (must be last) ────────────────────────────
 app.use(notFound);
 app.use(globalError);
+
+// ── Redis readiness check — polls until connected, then starts worker+cron ─
+const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
+  const { getCacheRedis } = require('./config/redis');
+
+  for (let i = 1; i <= retries; i++) {
+    try {
+      const redis = getCacheRedis();
+      await redis.ping(); // throws if not connected
+      logger.info('[startup] Redis is ready — starting BullMQ worker and cron');
+
+      const { startWorker } = require('./jobs/syncQueue');
+      const { startCron }   = require('./jobs/cronJob');
+      startWorker();
+      startCron();
+      logger.info('✓ BullMQ worker and hourly cron started');
+      return; // success — exit loop
+    } catch (err) {
+      logger.warn(`[startup] Redis not ready (attempt ${i}/${retries}): ${err.message}`);
+      if (i < retries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  // All retries exhausted — log warning but don't crash the HTTP server
+  // The app still works for fee lookups and AI agent; only auto-sync is affected
+  logger.warn('[startup] Redis unavailable after all retries — worker/cron skipped. Agent + fees still operational.');
+};
 
 // ── Start server ───────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '5000', 10);
@@ -67,32 +94,24 @@ let server;
 const start = async () => {
   await connectDB();
 
-  // Start HTTP server first
+  // Start HTTP server first so Render health check passes immediately
   server = app.listen(PORT, () => {
     logger.info(`⚡ ChainWise API  →  http://localhost:${PORT}`);
     logger.info(`   Health check   →  http://localhost:${PORT}/health`);
     logger.info(`   Environment    →  ${process.env.NODE_ENV || 'development'}`);
   });
 
-  // Start BullMQ worker and cron AFTER server is up
-  // Delay slightly to let Redis fully connect
-  setTimeout(() => {
-    try {
-      const { startWorker } = require('./jobs/syncQueue');
-      const { startCron }   = require('./jobs/cronJob');
-      startWorker();
-      startCron();
-      logger.info('✓ BullMQ worker and hourly cron started');
-    } catch (err) {
-      logger.warn(`Worker/cron startup failed (Redis may be unavailable): ${err.message}`);
-    }
-  }, 2000); // wait 2s for Redis to be ready
+  // Start Redis-dependent services in background — won't block HTTP
+  waitForRedisAndStartWorker();
 };
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 const shutdown = async (signal) => {
-  const { stopCron } = require('./jobs/cronJob');
-  stopCron();
+  try {
+    const { stopCron } = require('./jobs/cronJob');
+    stopCron();
+  } catch (_) {}
+
   logger.info(`${signal} received — shutting down gracefully...`);
 
   server.close(async () => {
