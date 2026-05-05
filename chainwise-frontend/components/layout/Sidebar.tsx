@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { MessageSquare, BarChart3, Zap, Search, LogOut, LogIn, ShieldCheck, Menu, X } from 'lucide-react';
+import { MessageSquare, BarChart3, Zap, Search, LogOut, LogIn, ShieldCheck, Menu, X, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import ConversationHistory from './ConversationHistory';
 import { useState } from 'react';
@@ -13,6 +13,7 @@ const NAV_TOP = [
   { href: '/coins', icon: Search,        label: 'Coin Explorer', adminOnly: false },
   { href: '/fees',  icon: BarChart3,     label: 'Fee Tables',    adminOnly: false },
   { href: '/admin', icon: ShieldCheck,   label: 'Admin',         adminOnly: true  },
+  { href: '/admin/sync', icon: RefreshCw, label: 'Auto-Sync', adminOnly: true },
 ];
 
 export default function Sidebar() {

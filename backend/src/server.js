@@ -12,6 +12,9 @@ const conversationsRoute = require('./routes/conversations');
 const adminRoute         = require('./routes/admin');
 const agentRoute = require('./routes/agent');
 const feesRoute  = require('./routes/fees');
+const syncRoute  = require('./routes/sync');
+const { startWorker } = require('./jobs/syncQueue');
+const { startCron }   = require('./jobs/cronJob');
 
 const app = express();
 
@@ -50,6 +53,7 @@ app.get('/health', (_, res) => {
 app.use('/api/agent', agentRoute);
 app.use('/api/fees',  feesRoute);
 app.use('/api/conversations', conversationsRoute);
+app.use('/api/sync', syncRoute);
 app.use('/api/admin',         adminRoute);
 
 // ── 404 + Global error handlers (must be last) ────────────────────────────
@@ -62,15 +66,33 @@ let server;
 
 const start = async () => {
   await connectDB();
+
+  // Start HTTP server first
   server = app.listen(PORT, () => {
     logger.info(`⚡ ChainWise API  →  http://localhost:${PORT}`);
     logger.info(`   Health check   →  http://localhost:${PORT}/health`);
     logger.info(`   Environment    →  ${process.env.NODE_ENV || 'development'}`);
   });
+
+  // Start BullMQ worker and cron AFTER server is up
+  // Delay slightly to let Redis fully connect
+  setTimeout(() => {
+    try {
+      const { startWorker } = require('./jobs/syncQueue');
+      const { startCron }   = require('./jobs/cronJob');
+      startWorker();
+      startCron();
+      logger.info('✓ BullMQ worker and hourly cron started');
+    } catch (err) {
+      logger.warn(`Worker/cron startup failed (Redis may be unavailable): ${err.message}`);
+    }
+  }, 2000); // wait 2s for Redis to be ready
 };
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 const shutdown = async (signal) => {
+  const { stopCron } = require('./jobs/cronJob');
+  stopCron();
   logger.info(`${signal} received — shutting down gracefully...`);
 
   server.close(async () => {
