@@ -33,23 +33,23 @@ export default function Sidebar() {
   const handleNavClick = () => setMobileOpen(false);
 
   const sidebarContent = (
-    <aside className="w-56 h-full border-r border-brand-border bg-brand-surface flex flex-col">
+    <aside className="w-56 h-full border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col transition-colors duration-200">
 
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-brand-border flex items-center justify-between">
+      <div className="px-4 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-green to-brand-blue flex items-center justify-center shadow-[0_0_12px_rgba(0,255,136,0.4)]">
-            <Zap className="w-4 h-4 text-black" />
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center">
+            <Zap className="w-4 h-4 text-zinc-950" />
           </div>
           <div>
-            <div className="font-mono font-bold text-brand-green text-sm tracking-[0.15em]">CHAINWISE</div>
-            <div className="font-mono text-[9px] text-brand-muted tracking-widest">CRYPTO AGENT</div>
+            <div className="font-sans font-bold text-emerald-600 dark:text-emerald-500 text-sm tracking-[0.15em]">CHAINWISE</div>
+            <div className="font-sans text-[9px] font-medium text-zinc-500 dark:text-zinc-400 tracking-widest uppercase">CRYPTO AGENT</div>
           </div>
         </div>
         {/* Close button — mobile only */}
         <button
           onClick={() => setMobileOpen(false)}
-          className="md:hidden text-brand-muted hover:text-brand-text transition-colors"
+          className="md:hidden text-zinc-500 dark:text-zinc-400"
         >
           <X className="w-4 h-4" />
         </button>
@@ -67,30 +67,30 @@ export default function Sidebar() {
                 href={href}
                 onClick={handleNavClick}
                 className={`
-                  flex items-center gap-2.5 px-3 py-2 rounded-lg font-mono text-xs transition-all duration-150
+                  flex items-center gap-2.5 px-3 py-2 rounded-lg font-sans text-sm transition-colors duration-200
                   ${active
-                    ? 'bg-[rgba(0,255,136,0.1)] text-brand-green border border-[rgba(0,255,136,0.2)]'
-                    : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.03)]'
+                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 border border-emerald-200 dark:border-emerald-500/20'
+                    : 'text-zinc-500 dark:text-zinc-400'
                   }
                 `}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-4 h-4" />
                 {label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-green shadow-[0_0_6px_rgba(0,255,136,0.8)]" />}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-500" />}
               </Link>
             );
           })}
       </nav>
 
       {/* Conversation history */}
-      <div className="border-t border-brand-border mt-2 flex-1 min-h-0 flex flex-col">
+      <div className="border-t border-zinc-200 dark:border-zinc-800 mt-2 flex-1 min-h-0 flex flex-col">
         <ConversationHistory onNewChat={handleNewChat} />
       </div>
 
       {/* User footer */}
-      <div className="px-3 py-3 border-t border-brand-border">
+      <div className="px-3 py-3 border-t border-zinc-200 dark:border-zinc-800">
         {loading ? (
-          <div className="h-8 bg-brand-border rounded-lg animate-pulse" />
+          <div className="h-8 bg-zinc-100 dark:bg-zinc-800 rounded-lg animate-pulse" />
         ) : isAuthenticated && user ? (
           <div className="space-y-1">
             <div className="flex items-center gap-2 px-2 py-1">
@@ -103,19 +103,19 @@ export default function Sidebar() {
                   alt="User avatar"
                 />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-brand-green flex items-center justify-center text-black text-[10px] font-bold">
+                <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-zinc-950 text-[10px] font-bold">
                   {user.email?.[0]?.toUpperCase()}
                 </div>
               )}
-              <span className="font-mono text-[11px] text-brand-text truncate flex-1">
+              <span className="font-sans text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1">
                 {user.user_metadata?.full_name || user.email}
               </span>
             </div>
             <button
               onClick={() => { signOut(); setMobileOpen(false); }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg font-mono text-[11px] text-brand-muted hover:text-red-400 hover:bg-red-950/30 transition-all"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg font-sans text-xs text-zinc-500 dark:text-zinc-400 transition-colors duration-200"
             >
-              <LogOut className="w-3 h-3" />
+              <LogOut className="w-3.5 h-3.5" />
               Sign out
             </button>
           </div>
@@ -123,9 +123,9 @@ export default function Sidebar() {
           <Link
             href="/login"
             onClick={handleNavClick}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg font-mono text-xs text-brand-muted hover:text-brand-green hover:bg-[rgba(0,255,136,0.05)] border border-brand-border hover:border-brand-dim transition-all"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg font-sans text-sm text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 transition-colors duration-200"
           >
-            <LogIn className="w-3.5 h-3.5" />
+            <LogIn className="w-4 h-4" />
             Sign in
           </Link>
         )}
@@ -143,7 +143,7 @@ export default function Sidebar() {
       {/* ── Mobile: hamburger button (top-left, fixed) ────────────────────── */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="md:hidden fixed top-3 left-3 z-40 p-2 rounded-lg bg-brand-surface border border-brand-border text-brand-muted hover:text-brand-green transition-colors shadow-lg"
+        className="md:hidden fixed top-3 left-3 z-40 p-2 rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400"
         aria-label="Open menu"
       >
         <Menu className="w-4 h-4" />
@@ -152,7 +152,7 @@ export default function Sidebar() {
       {/* ── Mobile: backdrop ──────────────────────────────────────────────── */}
       {mobileOpen && (
         <div
-          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className="md:hidden fixed inset-0 z-40 bg-zinc-950/60 backdrop-blur-sm"
           onClick={() => setMobileOpen(false)}
         />
       )}

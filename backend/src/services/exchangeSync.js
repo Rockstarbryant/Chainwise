@@ -1,4 +1,6 @@
 const ccxt           = require('ccxt');
+const crypto         = require('crypto');
+const https          = require('https');
 const ExchangeFee    = require('../models/ExchangeFee');
 const ExchangeApiKey = require('../models/ExchangeApiKey');
 const logger         = require('../../utils/logger');
@@ -13,14 +15,12 @@ const CCXT_MAP = {
   coinex:  'coinex',
 };
 
-// FIX 1: Added `passphrase` as a proper parameter
 function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') {
   const className = CCXT_MAP[exchangeKey];
   if (!className || !ccxt[className]) {
     throw new Error(`No CCXT support for exchange: ${exchangeKey}`);
   }
 
-  // Exchange-specific options
   const exchangeOptions = {
     binance: {
       apiKey,
@@ -43,7 +43,7 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
     kucoin: {
       apiKey,
       secret:          apiSecret,
-      password:        passphrase, // FIX: now uses the passed-in passphrase
+      password:        passphrase,
       timeout:         30000,
       enableRateLimit: true,
       options:         { defaultType: 'spot' },
@@ -51,7 +51,7 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
     bitget: {
       apiKey,
       secret:          apiSecret,
-      password:        passphrase, // FIX: now uses the passed-in passphrase
+      password:        passphrase,
       timeout:         30000,
       enableRateLimit: true,
       options:         { defaultType: 'spot' },
@@ -97,7 +97,6 @@ async function getDecryptedKeys(exchangeKey, adminUserId) {
 }
 
 // ── Test API keys ─────────────────────────────────────────────────────────
-// FIX 2: Added `passphrase` parameter and passed it to buildExchangeInstance
 async function testApiKeys(exchangeKey, apiKey, apiSecret, passphrase = '') {
   try {
     const exchange = buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase);
@@ -112,9 +111,186 @@ async function testApiKeys(exchangeKey, apiKey, apiSecret, passphrase = '') {
   }
 }
 
-// ── Fetch all currencies with network info ────────────────────────────────
-// FIX 3: Added `passphrase` parameter and passed it to buildExchangeInstance
+// ── Gate.io direct API helper ─────────────────────────────────────────────
+// CCXT's fetchCurrencies for Gate.io never populates fee/limit fields because
+// Gate.io's /wallet/withdraw_status uses dynamic per-chain keys (e.g.
+// usdt_erc20_withdraw_txfee) that CCXT doesn't normalise. We call it directly.
+
+function gateioSign(method, path, queryString, apiSecret) {
+  const timestamp  = Math.floor(Date.now() / 1000).toString();
+  const bodyHash   = crypto.createHash('sha512').update('').digest('hex');
+  const signString = `${method}\n${path}\n${queryString}\n${bodyHash}\n${timestamp}`;
+  const signature  = crypto.createHmac('sha512', apiSecret).update(signString).digest('hex');
+  return { timestamp, signature };
+}
+
+function gateioRequest(method, path, queryString, apiKey, apiSecret) {
+  return new Promise((resolve, reject) => {
+    const { timestamp, signature } = gateioSign(method, path, queryString, apiSecret);
+    const fullPath = queryString ? `${path}?${queryString}` : path;
+
+    const options = {
+      hostname: 'api.gateio.ws',
+      path:     fullPath,
+      method,
+      headers: {
+        'Accept':    'application/json',
+        'KEY':       apiKey,
+        'SIGN':      signature,
+        'Timestamp': timestamp,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          if (res.statusCode >= 400) {
+            return reject(new Error(`Gate.io API ${res.statusCode}: ${data.slice(0, 200)}`));
+          }
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error(`Gate.io parse error: ${e.message}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Gate.io request timeout')); });
+    req.end();
+  });
+}
+
+// ── Gate.io-specific fee fetcher ──────────────────────────────────────────
+// Strategy:
+//   1. GET /wallet/withdraw_status  → per-currency fee info, including dynamic
+//      per-chain keys like `usdt_erc20_withdraw_txfee` and `usdt_trc20_withdraw_txfee`,
+//      plus a `chains` array in newer API versions with explicit per-chain fees.
+//   2. CCXT fetchCurrencies         → network list + active status per coin.
+//      We use CCXT only for the coin/network structure, not fees.
+async function fetchGateioFeeData(apiKey, apiSecret) {
+  logger.info('[sync] Fetching currencies from gateio...');
+
+  // Fetch both in parallel
+  const [withdrawStatus, spotCoins] = await Promise.all([
+    gateioRequest('GET', '/api/v4/wallet/withdraw_status', '', apiKey, apiSecret),
+    buildExchangeInstance('gateio', apiKey, apiSecret).fetchCurrencies(),
+  ]);
+
+  logger.info(`[sync] gateio: ${Object.keys(spotCoins).length} currencies returned`);
+
+  // Index withdraw_status by symbol for O(1) lookup
+  // statusMap: { "USDT" -> { withdraw_fix, withdraw_amount_mini, deposit, chains?, ... } }
+  const statusMap = {};
+  for (const item of withdrawStatus) {
+    if (item.currency) {
+      statusMap[item.currency.toUpperCase()] = item;
+    }
+  }
+
+  const coinMap    = {};
+  let networkCount = 0;
+
+  for (const [symbol, currency] of Object.entries(spotCoins)) {
+    if (!currency || !currency.active) continue;
+
+    const upperSymbol = symbol.toUpperCase();
+    const statusInfo  = statusMap[upperSymbol];
+    const networks    = [];
+    const netData     = currency.networks || {};
+
+    for (const networkId of Object.keys(netData)) {
+      const net = netData[networkId];
+      if (!net) continue;
+
+      // Gate.io marks nearly all networks active=false. Check the raw info flags.
+      // is_withdraw_disabled / is_deposit_disabled: 0 = enabled, 1 = disabled
+      if (net.active === false) {
+        const info      = net.info || {};
+        const wEnabled  = info.is_withdraw_disabled === 0 || info.is_withdraw_disabled === false;
+        const dEnabled  = info.is_deposit_disabled  === 0 || info.is_deposit_disabled  === false;
+        if (!wEnabled && !dEnabled) continue;
+      }
+
+      let withdrawFee = 0;
+      let minWithdraw = 0;
+      let minDeposit  = 0;
+
+      if (statusInfo) {
+        const chainId   = networkId.toLowerCase();
+        const chainName = (net.name || networkId).toLowerCase();
+
+        // FORMAT A — newer Gate.io API: statusInfo.chains[] with per-chain objects
+        // { chain: "ETH", withdraw_fix: "0.003", withdraw_amount_mini: "0.006", deposit: "0" }
+        const chainEntry = Array.isArray(statusInfo.chains)
+          ? statusInfo.chains.find(c => {
+              const c_id = c.chain?.toLowerCase() || '';
+              return c_id === chainId || c_id === chainName;
+            })
+          : null;
+
+        if (chainEntry) {
+          withdrawFee = parseFloat(chainEntry.withdraw_fix)         || 0;
+          minWithdraw = parseFloat(chainEntry.withdraw_amount_mini) || 0;
+          minDeposit  = parseFloat(chainEntry.deposit)              || 0;
+        } else {
+          // FORMAT B — older / single-chain currencies.
+          // For multi-chain tokens Gate.io adds dynamic keys:
+          //   {symbol_lower}_{chain_lower}_withdraw_txfee
+          //   {symbol_lower}_{chain_lower}_withdraw_amount_mini
+          // e.g. usdt_erc20_withdraw_txfee, usdt_trc20_withdraw_txfee
+          const sym = upperSymbol.toLowerCase();
+          const chn = chainId;
+
+          const dynFeeKey = `${sym}_${chn}_withdraw_txfee`;
+          const dynMinKey = `${sym}_${chn}_withdraw_amount_mini`;
+
+          withdrawFee = parseFloat(
+            statusInfo[dynFeeKey]         ??
+            statusInfo.withdraw_fix       ?? 0
+          ) || 0;
+
+          minWithdraw = parseFloat(
+            statusInfo[dynMinKey]              ??
+            statusInfo.withdraw_amount_mini    ?? 0
+          ) || 0;
+
+          minDeposit = parseFloat(statusInfo.deposit ?? 0) || 0;
+        }
+      }
+
+      networks.push({
+        chain:          net.name || networkId.toUpperCase(),
+        chainId:        networkId.toLowerCase(),
+        withdrawFee,
+        withdrawFeeUSD: null,
+        minWithdraw,
+        minDeposit,
+        depositFee:     0,
+        arrivalMins:    estimateArrivalMins(networkId),
+        isActive:       true,
+        dataSource:     'api',
+        lastSynced:     new Date(),
+      });
+      networkCount++;
+    }
+
+    if (networks.length > 0) {
+      coinMap[upperSymbol] = networks;
+    }
+  }
+
+  logger.info(`[sync] gateio: parsed ${Object.keys(coinMap).length} coins, ${networkCount} networks`);
+  return coinMap;
+}
+
+// ── Standard fee fetcher (all exchanges except Gate.io) ───────────────────
 async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase = '') {
+  // Gate.io requires a direct API approach — CCXT never populates its fee fields
+  if (exchangeKey === 'gateio') {
+    return fetchGateioFeeData(apiKey, apiSecret);
+  }
+
   logger.info(`[sync] Fetching currencies from ${exchangeKey}...`);
   const exchange = buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase);
 
@@ -127,15 +303,12 @@ async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase =
   for (const [symbol, currency] of Object.entries(currencies)) {
     if (!currency || !currency.active) continue;
 
-    const networks  = [];
-    const netData   = currency.networks || {};
-    const netKeys   = Object.keys(netData);
+    const networks = [];
+    const netData  = currency.networks || {};
 
-    for (const networkId of netKeys) {
+    for (const networkId of Object.keys(netData)) {
       const net = netData[networkId];
       if (!net) continue;
-
-      // Some exchanges mark individual networks as inactive
       if (net.active === false) continue;
 
       const withdrawFee = parseFloat(
@@ -144,13 +317,13 @@ async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase =
 
       const minWithdraw = parseFloat(
         net.limits?.withdraw?.min ??
-        net.withdraw?.min ??
+        net.withdraw?.min         ??
         currency.limits?.withdraw?.min ?? 0
       ) || 0;
 
       const minDeposit = parseFloat(
         net.limits?.deposit?.min ??
-        net.deposit?.min ??
+        net.deposit?.min         ??
         currency.limits?.deposit?.min ?? 0
       ) || 0;
 
@@ -193,8 +366,6 @@ async function syncExchange(exchangeKey, adminUserId) {
   logger.info(`[sync] ▶ Starting full sync: ${exchangeKey}`);
   const startTime = Date.now();
 
-  // 1. Get API keys from DB (including passphrase via getDecryptedKeys)
-  // FIX 4: Use getDecryptedKeys so passphrase is always retrieved
   const { apiKey, apiSecret, passphrase } = await getDecryptedKeys(exchangeKey, adminUserId);
 
   const keyDoc = await ExchangeApiKey.findOne({ exchange: exchangeKey, adminUserId });
@@ -202,13 +373,10 @@ async function syncExchange(exchangeKey, adminUserId) {
     throw new Error(`No API keys stored for ${exchangeKey}`);
   }
 
-  // 2. Fetch fresh data from exchange
   let coinMap;
   try {
-    // FIX 5: Pass passphrase through to fetchExchangeFeeData
     coinMap = await fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase);
   } catch (err) {
-    // Update key doc with error
     await ExchangeApiKey.findByIdAndUpdate(keyDoc._id, {
       lastError: err.message?.slice(0, 200),
       isValid:   false,
@@ -221,7 +389,6 @@ async function syncExchange(exchangeKey, adminUserId) {
     return { synced: 0, skipped: 0, exchange: exchangeKey };
   }
 
-  // 3. Get existing exchange doc from DB
   let doc = await ExchangeFee.findOne({ exchange: exchangeKey });
   if (!doc) {
     logger.warn(`[sync] ${exchangeKey} not in ExchangeFee DB — creating it`);
@@ -234,9 +401,8 @@ async function syncExchange(exchangeKey, adminUserId) {
   }
 
   let synced  = 0;
-  let skipped = 0; // manual overrides preserved
+  let skipped = 0;
 
-  // 4. Merge new data into DB
   for (const [symbol, newNetworks] of Object.entries(coinMap)) {
     let coinData = doc.coins.find(c => c.symbol === symbol);
 
@@ -246,7 +412,6 @@ async function syncExchange(exchangeKey, adminUserId) {
       continue;
     }
 
-    // Update existing networks
     let coinChanged = false;
     for (const newNet of newNetworks) {
       const existing = coinData.networks.find(
@@ -258,9 +423,7 @@ async function syncExchange(exchangeKey, adminUserId) {
         coinChanged = true;
       } else if (existing.dataSource === 'manual') {
         skipped++;
-        // Preserve manual — don't overwrite
       } else {
-        // Safe to auto-update
         existing.withdrawFee    = newNet.withdrawFee;
         existing.minWithdraw    = newNet.minWithdraw;
         existing.minDeposit     = newNet.minDeposit;
@@ -277,11 +440,9 @@ async function syncExchange(exchangeKey, adminUserId) {
   doc.dataSource  = 'api';
   await doc.save();
 
-  // 5. Bust Redis cache for this exchange
   await cacheDelPattern(`fees:${exchangeKey}:*`);
   await cacheDelPattern(`compare:*`);
 
-  // 6. Update sync status on key doc
   await ExchangeApiKey.findByIdAndUpdate(keyDoc._id, {
     lastSync:  new Date(),
     lastError: null,

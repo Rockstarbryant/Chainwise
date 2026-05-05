@@ -91,17 +91,37 @@ const startWorker = () => {
 // ── Add a single sync job ─────────────────────────────────────────────────
 const queueSync = async (exchangeKey, adminUserId, priority = 3) => {
   const queue = getQueue();
-  const job   = await queue.add(
+
+  // Dedup key — used only to check for an already-running/waiting job.
+  // We do NOT pass this as jobId to BullMQ so completed jobs never block
+  // future runs with the same exchange+user combination.
+  const dedupKey = `${exchangeKey}-${adminUserId}`;
+
+  // Check if a job with this exchange+user is already active or waiting
+  const existing = await queue.getJob(dedupKey);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'active' || state === 'waiting') {
+      logger.info(`[queue] Skipping ${exchangeKey} — job already ${state} (${existing.id})`);
+      return existing.id;
+    }
+    // Job exists but is completed/failed/delayed — safe to queue a fresh one
+  }
+
+  // Use a unique jobId per run so BullMQ never silently deduplicates
+  const jobId = `${dedupKey}-${Date.now()}`;
+
+  const job = await queue.add(
     `sync:${exchangeKey}`,
     { exchangeKey, adminUserId },
     {
       priority,
-      // Unique job ID prevents duplicate queuing
-      jobId: `${exchangeKey}-${adminUserId}`,
+      jobId,
       removeOnComplete: true,
       removeOnFail:     false,
     }
   );
+
   logger.info(`[queue] ✓ Queued: ${exchangeKey} | jobId: ${job.id}`);
   return job.id;
 };
@@ -109,7 +129,7 @@ const queueSync = async (exchangeKey, adminUserId, priority = 3) => {
 // ── Queue all valid exchanges for a user ──────────────────────────────────
 const queueAllExchanges = async (adminUserId) => {
   const ExchangeApiKey = require('../models/ExchangeApiKey');
-  const keys   = await ExchangeApiKey.find({
+  const keys = await ExchangeApiKey.find({
     adminUserId,
     autoSync: true,
     isValid:  true,

@@ -55,8 +55,8 @@ export default function ConversationHistory({ onNewChat }: Props) {
   if (!isAuthenticated) {
     return (
       <div className="px-3 py-4">
-        <p className="font-mono text-[10px] text-brand-muted tracking-widest px-2 mb-2">HISTORY</p>
-        <p className="font-mono text-[11px] text-brand-muted px-2 leading-relaxed">
+        <p className="font-sans text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase px-2 mb-2">HISTORY</p>
+        <p className="font-sans text-sm text-zinc-500 dark:text-zinc-400 px-2 leading-relaxed">
           Sign in to save and access your conversation history.
         </p>
       </div>
@@ -66,17 +66,17 @@ export default function ConversationHistory({ onNewChat }: Props) {
   return (
     <div className="px-3 py-2 flex-1 overflow-y-auto min-h-0">
       <div className="flex items-center justify-between px-2 mb-2">
-        <p className="font-mono text-[9px] text-brand-muted tracking-widest">HISTORY</p>
+        <p className="font-sans text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase">HISTORY</p>
         <button
           onClick={onNewChat}
-          className="text-brand-muted hover:text-brand-green transition-colors"
+          className="text-zinc-500 dark:text-zinc-400"
         >
-          <Plus className="w-3 h-3" />
+          <Plus className="w-3.5 h-3.5" />
         </button>
       </div>
 
       {conversations.length === 0 ? (
-        <p className="font-mono text-[11px] text-brand-muted px-2">No conversations yet.</p>
+        <p className="font-sans text-sm text-zinc-500 dark:text-zinc-400 px-2">No conversations yet.</p>
       ) : (
         <div className="space-y-0.5">
           {conversations.map(conv => {
@@ -86,20 +86,20 @@ export default function ConversationHistory({ onNewChat }: Props) {
                 key={conv._id}
                 href={`/chat/${conv._id}`}
                 className={`
-                  group flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-150
+                  flex items-center gap-2 px-2 py-2 rounded-lg transition-colors duration-200
                   ${isActive
-                    ? 'bg-[rgba(0,255,136,0.08)] text-brand-green'
-                    : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.03)]'
+                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500'
+                    : 'text-zinc-500 dark:text-zinc-400'
                   }
                 `}
               >
-                <MessageSquare className="w-3 h-3 flex-shrink-0" />
-                <span className="font-mono text-[11px] truncate flex-1">{conv.title}</span>
+                <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="font-sans text-sm truncate flex-1">{conv.title}</span>
                 <button
                   onClick={(e) => deleteConversation(conv._id, e)}
-                  className="opacity-0 group-hover:opacity-100 text-brand-muted hover:text-red-400 transition-all"
+                  className="text-zinc-400 dark:text-zinc-500"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </Link>
             );
