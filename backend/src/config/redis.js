@@ -5,7 +5,7 @@ const logger    = require('../../utils/logger');
 const REDIS_CONFIG = process.env.REDIS_URL
   ? {
       url:                  process.env.REDIS_URL,
-      maxRetriesPerRequest: null, // REQUIRED by BullMQ
+      maxRetriesPerRequest: null,
       enableReadyCheck:     false,
       retryStrategy: (times) => {
         if (times > 10) return null;
@@ -13,10 +13,10 @@ const REDIS_CONFIG = process.env.REDIS_URL
       },
     }
   : {
-      host:                 process.env.REDIS_HOST     || '127.0.0.1',
+      host:                 process.env.REDIS_HOST || '127.0.0.1',
       port:                 parseInt(process.env.REDIS_PORT || '6379'),
       password:             process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null, // REQUIRED by BullMQ
+      maxRetriesPerRequest: null,
       enableReadyCheck:     false,
       retryStrategy: (times) => {
         if (times > 10) return null;
