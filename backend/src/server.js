@@ -59,25 +59,44 @@ app.use(notFound);
 app.use(globalError);
 
 // ── Redis readiness check ──────────────────────────────────────────────────
-// Uses a fresh throw-away connection per attempt so a closed singleton
-// never causes every retry to fail with "Connection is closed"
+// Builds the probe connection the same way redis.js does — URL as first arg,
+// options as second — so TLS and all settings are applied identically.
 const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
   const { Redis } = require('ioredis');
+  const REDIS_URL = process.env.REDIS_URL || null;
 
-  const redisConfig = process.env.REDIS_URL
-    ? { url: process.env.REDIS_URL, maxRetriesPerRequest: 1, enableReadyCheck: false }
-    : {
-        host:                 process.env.REDIS_HOST || '127.0.0.1',
-        port:                 parseInt(process.env.REDIS_PORT || '6379'),
-        password:             process.env.REDIS_PASSWORD || undefined,
+  // Mirror the TLS detection from redis.js
+  const isTlsUrl = (url) =>
+    url.startsWith('rediss://') ||
+    url.includes('redislabs.com') ||
+    url.includes('upstash.io') ||
+    url.includes('redis.cloud');
+
+  // Build probe options — must match what makeRedis() does in redis.js
+  const makeProbe = () => {
+    if (REDIS_URL) {
+      const tlsOptions = isTlsUrl(REDIS_URL) ? { tls: { rejectUnauthorized: false } } : {};
+      return new Redis(REDIS_URL, {
         maxRetriesPerRequest: 1,
         enableReadyCheck:     false,
-      };
+        lazyConnect:          true,
+        ...tlsOptions,
+      });
+    }
+    return new Redis({
+      host:                 process.env.REDIS_HOST || '127.0.0.1',
+      port:                 parseInt(process.env.REDIS_PORT || '6379'),
+      password:             process.env.REDIS_PASSWORD || undefined,
+      maxRetriesPerRequest: 1,
+      enableReadyCheck:     false,
+      lazyConnect:          true,
+    });
+  };
 
   for (let i = 1; i <= retries; i++) {
     let probe = null;
     try {
-      probe = new Redis({ ...redisConfig, lazyConnect: true });
+      probe = makeProbe();
       await probe.connect();
       await probe.ping();
       await probe.quit();
