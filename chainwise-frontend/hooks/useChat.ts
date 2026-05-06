@@ -11,9 +11,13 @@ export function useChat(conversationId?: string) {
   const { isAuthenticated, getToken } = useAuth();
   const [messages, setMessages]         = useState<ChatMessage[]>([]);
   const [loading, setLoading]           = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false); // loading existing msgs
   const [error, setError]               = useState<string | null>(null);
   const [showAuthGate, setShowAuthGate] = useState(false);
   const [anonCount, setAnonCount]       = useState(0);
+
+  // Emitted when a new conversation is auto-created so the caller can redirect
+  const [createdConversationId, setCreatedConversationId] = useState<string | null>(null);
 
   // Tracks the last user message text so retry / edit can use it
   const lastUserTextRef = useRef<string>('');
@@ -23,11 +27,85 @@ export function useChat(conversationId?: string) {
     setAnonCount(stored);
   }, []);
 
+  // ── Load existing messages when opening a saved conversation ─────────────
+  // Runs whenever conversationId changes (user clicks a different chat in sidebar)
+  useEffect(() => {
+    if (!conversationId || !isAuthenticated) {
+      // No id = new blank chat; reset messages so old chat doesn't bleed through
+      setMessages([]);
+      return;
+    }
+
+    let cancelled = false; // prevent stale setState if id changes mid-fetch
+
+    const load = async () => {
+      setLoadingHistory(true);
+      setMessages([]); // clear previous conversation while loading
+      try {
+        const token = await getToken();
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${conversationId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await res.json();
+        if (!cancelled && data.success && Array.isArray(data.data.messages)) {
+          setMessages(
+            data.data.messages.map((m: {
+              role: 'user' | 'assistant';
+              content: string;
+              toolsUsed?: unknown[];
+              timestamp?: string;
+            }) => ({
+              role: m.role,
+              content: m.content,
+              toolsUsed: m.toolsUsed,
+              timestamp: m.timestamp ? new Date(m.timestamp) : undefined,
+            }))
+          );
+        }
+      } catch {
+        // non-fatal — just show empty chat
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    };
+
+    load();
+
+    return () => { cancelled = true; };
+  // Only re-run when conversationId changes — intentionally omitting getToken
+  // to avoid re-fetching on every render (getToken is stable but not memoised)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, isAuthenticated]);
+
+  // ── Creates a new conversation on the backend and returns its id ──────────
+  const createConversation = useCallback(async (): Promise<string | null> => {
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await res.json();
+      if (!data.success) return null;
+      return data.data._id as string;
+    } catch {
+      return null;
+    }
+  }, [getToken]);
+
   // ── Internal fetch helper — shared by send, retry, editAndResend ──────────
   const _fetch = useCallback(async (
     text: string,
     historyForRequest: ChatMessage[],   // full history to send to API
     displayMessages: ChatMessage[],     // what to show in state after success
+    overrideConversationId?: string,    // used when we just auto-created one
   ) => {
     setError(null);
     setMessages(displayMessages);
@@ -36,10 +114,14 @@ export function useChat(conversationId?: string) {
     try {
       let result;
 
-      if (isAuthenticated && conversationId) {
+      // Resolve which conversation id to use for this request
+      const activeConvId = overrideConversationId ?? conversationId;
+
+      if (isAuthenticated && activeConvId) {
+        // ── Authenticated + conversation exists → persist to DB ────────────
         const token = await getToken();
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${conversationId}/message`,
+          `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${activeConvId}/message`,
           {
             method: 'POST',
             headers: {
@@ -53,6 +135,7 @@ export function useChat(conversationId?: string) {
         if (!data.success) throw new Error(data.error?.message || 'Request failed');
         result = data.data;
       } else {
+        // ── Anonymous → stateless agent ───────────────────────────────────
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/api/agent`,
           {
@@ -68,10 +151,7 @@ export function useChat(conversationId?: string) {
         result = data.data;
 
         // Only increment anon count on a genuine new send (not retry/edit)
-        // We check by whether the last message in displayMessages is the same as
-        // the last stored user message
         const storedCount = parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
-        // Avoid double-counting on retry — only increment when last user text changed
         const isNewMessage = text.trim() !== lastUserTextRef.current ||
           (displayMessages.filter(m => m.role === 'user').length >
            (messages.filter(m => m.role === 'user').length));
@@ -97,7 +177,6 @@ export function useChat(conversationId?: string) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
       setMessages(prev => {
-        // Remove any previous error message before adding new one
         const withoutError = prev.filter(m => !m.isError);
         return [...withoutError, {
           role: 'assistant',
@@ -115,6 +194,7 @@ export function useChat(conversationId?: string) {
   const send = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
 
+    // Block anonymous users who've hit the limit
     if (!isAuthenticated) {
       const count = parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
       if (count >= ANON_LIMIT) {
@@ -131,31 +211,42 @@ export function useChat(conversationId?: string) {
       timestamp: new Date(),
     };
     const updated = [...messages, userMsg];
-    await _fetch(text, updated, updated);
-  }, [messages, loading, isAuthenticated, _fetch]);
 
-  // ── retry: resend the last user message, drop the last error/assistant msg ─
+    // Authenticated user with no conversationId yet → auto-create then send
+    if (isAuthenticated && !conversationId) {
+      const newId = await createConversation();
+      if (newId) {
+        setCreatedConversationId(newId);
+        await _fetch(text, updated, updated, newId);
+      } else {
+        // Fallback: couldn't create conversation, use stateless agent
+        await _fetch(text, updated, updated);
+      }
+      return;
+    }
+
+    await _fetch(text, updated, updated);
+  }, [messages, loading, isAuthenticated, conversationId, createConversation, _fetch]);
+
+  // ── retry: resend the last user message ───────────────────────────────────
   const retry = useCallback(async () => {
     if (loading) return;
 
-    // Find the last user message
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return;
 
-    // Drop all messages after (and including) the last assistant response
     const lastUserIdx = messages.lastIndexOf(lastUserMsg);
     const trimmedHistory = messages.slice(0, lastUserIdx + 1);
 
     await _fetch(lastUserMsg.content, trimmedHistory, trimmedHistory);
   }, [messages, loading, _fetch]);
 
-  // ── editAndResend: replace the last user message with edited text ──────────
+  // ── editAndResend: replace a user message with edited text ────────────────
   const editAndResend = useCallback(async (newText: string, messageIndex: number) => {
     if (!newText.trim() || loading) return;
 
     lastUserTextRef.current = newText.trim();
 
-    // Keep everything before the edited message, replace it with the new text
     const historyUpToEdit = messages.slice(0, messageIndex);
     const editedMsg: ChatMessage = {
       role: 'user',
@@ -170,17 +261,18 @@ export function useChat(conversationId?: string) {
   const clear = useCallback(() => {
     setMessages([]);
     setError(null);
+    setCreatedConversationId(null);
     lastUserTextRef.current = '';
   }, []);
 
-  // Expose last user text so MessageInput can prefill the edit textarea
   const lastUserText = lastUserTextRef.current;
 
   return {
-    messages, loading, error,
+    messages, loading, loadingHistory, error,
     send, retry, editAndResend, clear,
     lastUserText,
     showAuthGate, setShowAuthGate,
     anonCount, anonLimit: ANON_LIMIT,
+    createdConversationId,
   };
 }

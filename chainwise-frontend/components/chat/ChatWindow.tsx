@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Bot } from 'lucide-react';
 import Message from './Message';
@@ -9,30 +10,53 @@ import MessageInput from './MessageInput';
 import AuthGate from '@/components/auth/AuthGate';
 import { useChat } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
+import { useSidebarRefresh } from '@/contexts/SidebarRefreshContext';
 
 interface Props {
   conversationId?: string;
-  onNewConversation?: () => void;
 }
 
-export default function ChatWindow({ conversationId, onNewConversation }: Props) {
+export default function ChatWindow({ conversationId }: Props) {
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { triggerHistoryRefresh } = useSidebarRefresh();
   const {
-    messages, loading,
+    messages, loading, loadingHistory,
     send, retry, editAndResend, clear,
     showAuthGate, setShowAuthGate,
     anonCount, anonLimit,
+    createdConversationId,
   } = useChat(conversationId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Edit state — tracks which message is being edited and its current text
-  const [editIndex, setEditIndex]   = useState<number | null>(null);
+  const [editIndex, setEditIndex]     = useState<number | null>(null);
   const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // ── When useChat auto-creates a conversation, redirect to its URL ──────────
+  useEffect(() => {
+    if (!createdConversationId) return;
+    triggerHistoryRefresh();
+    router.replace(`/chat/${createdConversationId}`);
+  }, [createdConversationId, router, triggerHistoryRefresh]);
+
+  // ── Bug 1 fix: refresh sidebar after agent responds so the auto-generated
+  //    title (written by the backend pre-save hook) appears in the list ──────
+  const prevLoadingRef = useRef(false);
+  useEffect(() => {
+    const justFinished = prevLoadingRef.current && !loading;
+    prevLoadingRef.current = loading;
+    if (justFinished && conversationId) {
+      // 400 ms grace period — backend pre-save runs synchronously but we
+      // want to ensure the document is fully committed before we re-fetch
+      const t = setTimeout(() => triggerHistoryRefresh(), 400);
+      return () => clearTimeout(t);
+    }
+  }, [loading, conversationId, triggerHistoryRefresh]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -50,7 +74,6 @@ export default function ChatWindow({ conversationId, onNewConversation }: Props)
 
   const handleSendOrEdit = (text: string) => {
     if (editIndex !== null) {
-      // editAndResend replaces message at editIndex with new text
       editAndResend(text, editIndex);
       setEditIndex(null);
       setEditPrefill(undefined);
@@ -59,13 +82,15 @@ export default function ChatWindow({ conversationId, onNewConversation }: Props)
     }
   };
 
-  const handleNewChat = () => {
+  // ── Bug 2 fix: navigate to /chat so conversationId becomes undefined ──────
+  // Previously clear() only wiped local state but the URL stayed at
+  // /chat/[id], so the next message still went to the old conversation.
+  const handleNewChat = useCallback(() => {
     handleCancelEdit();
     clear();
-    onNewConversation?.();
-  };
+    router.push('/chat');
+  }, [clear, router]);
 
-  // Determine which message index is the last assistant message (for retry button)
   const lastAssistantIndex = messages.reduce(
     (last, m, i) => (m.role === 'assistant' ? i : last),
     -1
@@ -101,10 +126,27 @@ export default function ChatWindow({ conversationId, onNewConversation }: Props)
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-3xl mx-auto space-y-8">
-          {messages.length === 0 && <SuggestedPrompts onSelect={send} />}
+
+          {/* History loading skeleton */}
+          {loadingHistory && (
+            <div className="space-y-8 animate-pulse">
+              {[1, 2, 3].map(i => (
+                <div key={i} className={`flex gap-4 items-start ${i % 2 === 0 ? 'flex-row-reverse' : ''}`}>
+                  <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex-shrink-0" />
+                  <div className={`space-y-2 ${i % 2 === 0 ? 'items-end' : 'items-start'} flex flex-col`} style={{ width: `${[55, 70, 45][i - 1]}%` }}>
+                    <div className="h-4 w-full rounded-lg bg-zinc-200 dark:bg-zinc-800" />
+                    <div className="h-4 w-4/5 rounded-lg bg-zinc-200 dark:bg-zinc-800" />
+                    {i === 2 && <div className="h-4 w-3/5 rounded-lg bg-zinc-200 dark:bg-zinc-800" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!loadingHistory && messages.length === 0 && <SuggestedPrompts onSelect={send} />}
 
           <AnimatePresence initial={false}>
-            {messages.map((msg, i) => (
+            {!loadingHistory && messages.map((msg, i) => (
               <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 10 }}
@@ -150,7 +192,7 @@ export default function ChatWindow({ conversationId, onNewConversation }: Props)
 
       <MessageInput
         onSend={handleSendOrEdit}
-        loading={loading}
+        loading={loading || loadingHistory}
         prefillText={editPrefill}
         onCancelEdit={editIndex !== null ? handleCancelEdit : undefined}
       />

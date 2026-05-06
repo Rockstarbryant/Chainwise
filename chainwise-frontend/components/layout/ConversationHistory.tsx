@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, Trash2, Plus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
@@ -15,19 +15,15 @@ interface Conversation {
 
 interface Props {
   onNewChat: () => void;
+  refreshTrigger?: number; // increment this from the parent to force a reload
 }
 
-export default function ConversationHistory({ onNewChat }: Props) {
+export default function ConversationHistory({ onNewChat, refreshTrigger }: Props) {
   const { isAuthenticated, getToken } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    loadConversations();
-  }, [isAuthenticated]);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const token = await getToken();
       const res = await fetch(
@@ -37,7 +33,22 @@ export default function ConversationHistory({ onNewChat }: Props) {
       const data = await res.json();
       if (data.success) setConversations(data.data);
     } catch {}
-  };
+  }, [getToken]);
+
+  // Load on mount / auth change
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    loadConversations();
+  }, [isAuthenticated, loadConversations]);
+
+  // Reload whenever the parent signals a new conversation was created or title updated.
+  // Use a small delay so the backend pre-save hook (which writes the title) has
+  // fully committed the document before we re-fetch the list.
+  useEffect(() => {
+    if (!isAuthenticated || refreshTrigger === undefined || refreshTrigger === 0) return;
+    const t = setTimeout(() => loadConversations(), 300);
+    return () => clearTimeout(t);
+  }, [refreshTrigger, isAuthenticated, loadConversations]);
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();

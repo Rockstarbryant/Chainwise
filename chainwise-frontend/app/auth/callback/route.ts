@@ -7,12 +7,13 @@ export async function GET(request: Request) {
   const next  = searchParams.get('next') ?? '/chat';
 
   if (code) {
-    const supabase = createClient();
+    const supabase = await createClient(); // ← await required in Next.js 15
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`);
     }
   }
 
+  // Auth failed — redirect with error flag so login page can show a banner
   return NextResponse.redirect(`${origin}/login?error=auth_failed`);
 }

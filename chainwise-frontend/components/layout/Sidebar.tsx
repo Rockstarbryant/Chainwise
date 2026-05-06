@@ -7,6 +7,7 @@ import { MessageSquare, BarChart3, Zap, Search, LogOut, LogIn, ShieldCheck, Menu
 import { useAuth } from '@/hooks/useAuth';
 import ConversationHistory from './ConversationHistory';
 import { useState } from 'react';
+import { useSidebarRefresh } from '@/contexts/SidebarRefreshContext';
 
 const NAV_TOP = [
   { href: '/chat',  icon: MessageSquare, label: 'Agent Chat',    adminOnly: false },
@@ -21,6 +22,8 @@ export default function Sidebar() {
   const router    = useRouter();
   const { user, isAuthenticated, signOut, loading } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { historyRefreshTrigger } = useSidebarRefresh();
 
   const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'yobra194@gmail.com';
   const isAdmin = user?.email === ADMIN_EMAIL;
@@ -84,7 +87,10 @@ export default function Sidebar() {
 
       {/* Conversation history */}
       <div className="border-t border-zinc-200 dark:border-zinc-800 mt-2 flex-1 min-h-0 flex flex-col">
-        <ConversationHistory onNewChat={handleNewChat} />
+        <ConversationHistory
+          onNewChat={handleNewChat}
+          refreshTrigger={historyRefreshTrigger}
+        />
       </div>
 
       {/* User footer */}

@@ -7,6 +7,7 @@ import {
   Plus, Pencil, Trash2, Save, X,
   ShieldAlert, Search,
   ChevronRight, AlertCircle, ArrowLeft,
+  Coins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -65,7 +66,6 @@ const EXCHANGES = [
   { key: 'gateio',  label: 'Gate.io' },
 ];
 
-// Mobile steps: 0 = exchange list, 1 = coin list, 2 = fee editor
 type MobileStep = 0 | 1 | 2;
 
 export default function AdminPage() {
@@ -187,7 +187,7 @@ export default function AdminPage() {
       );
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data?.error?.message);
-      showToast('success', `✓ Updated ${editingNetwork.chain}`);
+      showToast('success', `Updated ${editingNetwork.chain}`);
       setEditingNetwork(null);
       const updated = await refreshCoinNetworks(selectedCoin.symbol);
       setExistingNetworks(updated);
@@ -215,7 +215,7 @@ export default function AdminPage() {
       );
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data?.error?.message);
-      showToast('success', `✓ Added ${newNetwork.chain} for ${selectedCoin.symbol}`);
+      showToast('success', `Added ${newNetwork.chain} for ${selectedCoin.symbol}`);
       setAddingNetwork(false);
       setNewNetwork({ ...EMPTY_NETWORK });
       const updated = await refreshCoinNetworks(selectedCoin.symbol);
@@ -236,7 +236,7 @@ export default function AdminPage() {
       );
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data?.error?.message);
-      showToast('success', `✓ Deleted ${chain}`);
+      showToast('success', `Deleted ${chain}`);
       const updated = await refreshCoinNetworks(selectedCoin.symbol);
       setExistingNetworks(updated);
     } catch (err: unknown) {
@@ -252,23 +252,23 @@ export default function AdminPage() {
   // ── Guard renders ─────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <p className="font-mono text-xs text-brand-muted animate-pulse tracking-widest">CHECKING AUTH...</p>
+      <div className="h-full flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <p className="font-mono text-xs text-gray-500 dark:text-gray-400 animate-pulse tracking-widest">CHECKING AUTH...</p>
       </div>
     );
   }
 
   if (!isAdmin) {
     return (
-      <div className="h-full flex items-center justify-center px-4">
+      <div className="h-full flex items-center justify-center px-4 bg-gray-50 dark:bg-gray-950">
         <div className="text-center space-y-3">
-          <ShieldAlert className="w-10 h-10 text-red-400 mx-auto" />
-          <p className="font-mono text-sm text-red-400 font-bold">ACCESS DENIED</p>
-          <p className="font-mono text-xs text-brand-muted">
-            Signed in as <span className="text-red-400">{user?.email}</span>
+          <ShieldAlert className="w-10 h-10 text-red-500 dark:text-red-400 mx-auto" />
+          <p className="font-mono text-sm text-red-600 dark:text-red-400 font-bold">ACCESS DENIED</p>
+          <p className="font-mono text-xs text-gray-500 dark:text-gray-400">
+            Signed in as <span className="text-red-600 dark:text-red-400">{user?.email}</span>
           </p>
-          <p className="font-mono text-xs text-brand-muted">
-            Admin: <span className="text-brand-text">{ADMIN_EMAIL}</span>
+          <p className="font-mono text-xs text-gray-500 dark:text-gray-400">
+            Admin: <span className="text-gray-900 dark:text-gray-100">{ADMIN_EMAIL}</span>
           </p>
         </div>
       </div>
@@ -278,9 +278,9 @@ export default function AdminPage() {
   // ── Shared sub-components ─────────────────────────────────────────────────
 
   const ExchangeList = () => (
-    <div className="h-full flex flex-col overflow-hidden">
-      <div className="px-4 py-3 border-b border-brand-border flex-shrink-0">
-        <p className="font-mono text-[9px] text-brand-muted tracking-widest">EXCHANGES</p>
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+        <p className="font-mono text-[9px] text-gray-500 dark:text-gray-400 tracking-widest">EXCHANGES</p>
       </div>
       <div className="flex-1 overflow-y-auto">
         {EXCHANGES.map(ex => (
@@ -289,10 +289,10 @@ export default function AdminPage() {
             onClick={() => selectExchange(ex.key)}
             className={`
               w-full flex items-center justify-between px-4 py-4 text-left
-              border-b border-brand-border/50 transition-all duration-150
+              border-b border-gray-100 dark:border-gray-800/50 transition-none
               ${selectedEx === ex.key
-                ? 'bg-[rgba(0,255,136,0.08)] text-brand-green border-l-2 border-l-brand-green'
-                : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.02)]'
+                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-l-2 border-l-emerald-500'
+                : 'text-gray-600 dark:text-gray-400 bg-transparent'
               }
             `}
           >
@@ -305,40 +305,40 @@ export default function AdminPage() {
   );
 
   const CoinList = () => (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900">
       {/* Mobile back button */}
-      <div className="md:hidden px-4 py-3 border-b border-brand-border flex items-center gap-3 flex-shrink-0">
+      <div className="md:hidden px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center gap-3 flex-shrink-0">
         <button
           onClick={() => setMobileStep(0)}
-          className="text-brand-muted hover:text-brand-green transition-colors"
+          className="text-gray-500 dark:text-gray-400 transition-none"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <span className="font-mono text-xs text-brand-green font-bold">
+        <span className="font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold">
           {EXCHANGES.find(e => e.key === selectedEx)?.label}
         </span>
       </div>
 
       {/* Search */}
-      <div className="p-3 border-b border-brand-border flex-shrink-0">
-        <div className="flex items-center gap-2 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 focus-within:border-brand-dim transition-colors">
-          <Search className="w-3.5 h-3.5 text-brand-muted flex-shrink-0" />
+      <div className="p-3 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 transition-none">
+          <Search className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
           <input
             ref={searchRef}
             type="text"
             value={cgSearch}
             onChange={e => setCgSearch(e.target.value)}
             placeholder="Search coin..."
-            className="flex-1 bg-transparent font-mono text-xs text-brand-text placeholder:text-brand-muted outline-none"
+            className="flex-1 bg-transparent font-mono text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-600 outline-none"
           />
           {cgSearch && (
-            <button onClick={() => setCgSearch('')} className="text-brand-muted hover:text-brand-text">
+            <button onClick={() => setCgSearch('')} className="text-gray-400 dark:text-gray-500">
               <X className="w-3 h-3" />
             </button>
           )}
         </div>
         {cgCoins.length > 0 && (
-          <p className="font-mono text-[9px] text-brand-muted mt-1.5 tracking-widest">
+          <p className="font-mono text-[9px] text-gray-500 dark:text-gray-400 mt-1.5 tracking-widest">
             {filteredCoins.length} / {cgCoins.length} COINS
           </p>
         )}
@@ -349,24 +349,24 @@ export default function AdminPage() {
         {cgLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
-              <div key={i} className="h-12 bg-brand-surface border border-brand-border rounded-lg animate-pulse" />
+              <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg animate-pulse" />
             ))}
           </div>
         ) : fetchError ? (
           <div className="p-4">
-            <div className="flex items-start gap-2 text-red-400">
+            <div className="flex items-start gap-2 text-red-500 dark:text-red-400">
               <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <p className="font-mono text-xs">{fetchError}</p>
             </div>
             <button
               onClick={() => selectExchange(selectedEx)}
-              className="mt-2 font-mono text-[10px] text-brand-green hover:underline"
+              className="mt-2 font-mono text-[10px] text-emerald-600 dark:text-emerald-400 underline"
             >
               Retry
             </button>
           </div>
         ) : filteredCoins.length === 0 ? (
-          <p className="p-4 font-mono text-xs text-brand-muted">No coins found.</p>
+          <p className="p-4 font-mono text-xs text-gray-500 dark:text-gray-400">No coins found.</p>
         ) : (
           filteredCoins.map(coin => {
             const dbEx    = dbExchanges.find(e => e.exchange === selectedEx);
@@ -377,23 +377,23 @@ export default function AdminPage() {
                 onClick={() => selectCoin(coin)}
                 className={`
                   w-full flex items-center justify-between px-4 py-3
-                  border-b border-brand-border/40 text-left transition-all
+                  border-b border-gray-100 dark:border-gray-800/40 text-left transition-none
                   ${selectedCoin?.symbol === coin.symbol
-                    ? 'bg-[rgba(0,255,136,0.08)] text-brand-green border-l-2 border-l-brand-green'
-                    : 'text-brand-muted hover:text-brand-text hover:bg-[rgba(255,255,255,0.02)]'
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-l-2 border-l-emerald-500'
+                    : 'text-gray-600 dark:text-gray-400 bg-transparent'
                   }
                 `}
               >
                 <div>
-                  <div className="font-mono text-xs font-bold">{coin.symbol}</div>
-                  <div className="font-mono text-[9px] opacity-50 truncate max-w-[140px]">{coin.name}</div>
+                  <div className="font-mono text-xs font-bold text-gray-900 dark:text-gray-100">{coin.symbol}</div>
+                  <div className="font-mono text-[9px] text-gray-500 dark:text-gray-500 truncate max-w-[140px]">{coin.name}</div>
                 </div>
                 {hasData ? (
-                  <span className="font-mono text-[9px] text-brand-green bg-brand-green/10 border border-brand-green/20 rounded px-1.5 py-0.5">
+                  <span className="font-mono text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800/50 rounded px-1.5 py-0.5">
                     IN DB
                   </span>
                 ) : (
-                  <span className="font-mono text-[9px] text-brand-muted opacity-50">NEW</span>
+                  <span className="font-mono text-[9px] text-gray-400 dark:text-gray-600">NEW</span>
                 )}
               </button>
             );
@@ -403,7 +403,7 @@ export default function AdminPage() {
         {!cgLoading && cgCoins.length >= 100 && (
           <button
             onClick={() => { const next = cgPage + 1; setCgPage(next); selectExchange(selectedEx, next); }}
-            className="w-full py-3 font-mono text-xs text-brand-muted hover:text-brand-green transition-colors border-t border-brand-border"
+            className="w-full py-3 font-mono text-xs text-gray-500 dark:text-gray-400 transition-none border-t border-gray-200 dark:border-gray-800"
           >
             Load more →
           </button>
@@ -413,11 +413,11 @@ export default function AdminPage() {
   );
 
   const FeeEditor = () => (
-    <div className="h-full overflow-y-auto p-4 md:p-5">
+    <div className="h-full overflow-y-auto p-4 md:p-5 bg-gray-50 dark:bg-gray-950">
       {!selectedCoin ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-          <div className="text-5xl opacity-10">💱</div>
-          <p className="font-mono text-xs text-brand-muted tracking-widest">
+          <Coins className="w-12 h-12 text-gray-300 dark:text-gray-700" />
+          <p className="font-mono text-xs text-gray-500 dark:text-gray-400 tracking-widest">
             SELECT A COIN TO VIEW AND EDIT ITS FEE SETTINGS
           </p>
         </div>
@@ -428,18 +428,18 @@ export default function AdminPage() {
             <div className="flex items-start gap-3">
               <button
                 onClick={() => setMobileStep(1)}
-                className="md:hidden mt-1 text-brand-muted hover:text-brand-green transition-colors flex-shrink-0"
+                className="md:hidden mt-1 text-gray-500 dark:text-gray-400 transition-none flex-shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <div>
-                <h2 className="font-mono font-bold text-lg text-brand-green">
+                <h2 className="font-mono font-bold text-lg text-emerald-600 dark:text-emerald-400">
                   {selectedCoin.symbol}
-                  <span className="text-brand-muted text-sm font-normal ml-2">
+                  <span className="text-gray-500 dark:text-gray-400 text-sm font-normal ml-2">
                     on {EXCHANGES.find(e => e.key === selectedEx)?.label}
                   </span>
                 </h2>
-                <p className="font-mono text-[11px] text-brand-muted mt-0.5">
+                <p className="font-mono text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                   {existingNetworks.length > 0
                     ? `${existingNetworks.length} chains in database`
                     : 'Not in database yet — add the first chain below'
@@ -449,7 +449,7 @@ export default function AdminPage() {
             </div>
             <button
               onClick={() => { setAddingNetwork(true); setEditingNetwork(null); }}
-              className="flex items-center gap-1.5 font-mono text-xs text-brand-green border border-brand-green/30 hover:bg-brand-green/10 rounded-lg px-3 py-2 transition-all flex-shrink-0"
+              className="flex items-center gap-1.5 font-mono text-xs text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-3 py-2 transition-none flex-shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Add Chain</span>
@@ -461,19 +461,19 @@ export default function AdminPage() {
           {existingNetworks.length > 0 && (
             <div className="mb-5">
               {/* Desktop table */}
-              <div className="hidden md:block bg-brand-surface border border-brand-border rounded-xl overflow-hidden">
-                <div className="grid grid-cols-8 gap-2 px-4 py-2.5 bg-[rgba(0,0,0,0.2)] border-b border-brand-border">
+              <div className="hidden md:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+                <div className="grid grid-cols-8 gap-2 px-4 py-2.5 bg-gray-100 dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800">
                   {['Chain', 'Chain ID', 'Withdraw Fee', 'Fee USD', 'Min Withdraw', 'Min Deposit', 'ETA', 'Actions'].map(h => (
-                    <div key={h} className="font-mono text-[9px] text-brand-muted tracking-widest">{h}</div>
+                    <div key={h} className="font-mono text-[9px] text-gray-500 dark:text-gray-400 tracking-widest">{h}</div>
                   ))}
                 </div>
-                <div className="divide-y divide-brand-border/40">
+                <div className="divide-y divide-gray-200 dark:divide-gray-800">
                   {existingNetworks.map((network, i) => (
                     <div key={i}>
                       {editingNetwork?._original === network.chain ? (
-                        <div className="grid grid-cols-8 gap-2 px-4 py-3 bg-[rgba(0,255,136,0.03)] items-center">
-                          <div className="font-mono text-xs text-brand-green font-bold truncate">{network.chain}</div>
-                          <div className="font-mono text-[10px] text-brand-muted truncate">{network.chainId}</div>
+                        <div className="grid grid-cols-8 gap-2 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/10 items-center">
+                          <div className="font-mono text-xs text-emerald-700 dark:text-emerald-400 font-bold truncate">{network.chain}</div>
+                          <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400 truncate">{network.chainId}</div>
                           {(['withdrawFee', 'withdrawFeeUSD', 'minWithdraw', 'minDeposit', 'arrivalMins'] as const).map(field => (
                             <input
                               key={field}
@@ -484,34 +484,34 @@ export default function AdminPage() {
                               onChange={e => setEditingNetwork(prev =>
                                 prev ? { ...prev, [field]: parseFloat(e.target.value) || 0 } : null
                               )}
-                              className="w-full bg-brand-bg border border-brand-dim rounded-lg px-2 py-1.5 font-mono text-xs text-brand-text outline-none"
+                              className="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 font-mono text-xs text-gray-900 dark:text-gray-100 outline-none"
                             />
                           ))}
                           <div className="flex gap-1">
-                            <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-brand-green text-black font-mono text-[10px] font-bold disabled:opacity-50">
+                            <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white font-mono text-[10px] font-bold disabled:opacity-50">
                               <Save className="w-3 h-3" />{saving ? '...' : 'Save'}
                             </button>
-                            <button onClick={() => setEditingNetwork(null)} className="p-1.5 rounded-lg border border-brand-border text-brand-muted">
+                            <button onClick={() => setEditingNetwork(null)} className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
                               <X className="w-3 h-3" />
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-8 gap-2 px-4 py-3 items-center hover:bg-[rgba(255,255,255,0.01)] group transition-colors">
-                          <div className="font-mono text-xs text-brand-text truncate">{network.chain}</div>
-                          <div className="font-mono text-[10px] text-brand-muted truncate">{network.chainId}</div>
-                          <div className={`font-mono text-xs font-bold ${network.withdrawFee === 0 ? 'text-brand-green' : 'text-brand-text'}`}>
-                            {network.withdrawFee === 0 ? '🆓 FREE' : network.withdrawFee}
+                        <div className="grid grid-cols-8 gap-2 px-4 py-3 items-center transition-none">
+                          <div className="font-mono text-xs text-gray-900 dark:text-gray-100 truncate">{network.chain}</div>
+                          <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400 truncate">{network.chainId}</div>
+                          <div className={`font-mono text-xs font-bold ${network.withdrawFee === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-900 dark:text-gray-100'}`}>
+                            {network.withdrawFee === 0 ? 'Free' : network.withdrawFee}
                           </div>
-                          <div className="font-mono text-[11px] text-brand-muted">{network.withdrawFeeUSD != null ? `$${network.withdrawFeeUSD}` : '—'}</div>
-                          <div className="font-mono text-[11px] text-brand-muted">{network.minWithdraw}</div>
-                          <div className="font-mono text-[11px] text-brand-muted">{network.minDeposit}</div>
-                          <div className="font-mono text-[11px] text-brand-muted">{network.arrivalMins}m</div>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setEditingNetwork({ ...network, _original: network.chain })} className="p-1.5 rounded-lg border border-brand-border text-brand-muted hover:text-brand-green hover:border-brand-green/40 transition-all">
+                          <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{network.withdrawFeeUSD != null ? `$${network.withdrawFeeUSD}` : '—'}</div>
+                          <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{network.minWithdraw}</div>
+                          <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{network.minDeposit}</div>
+                          <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{network.arrivalMins}m</div>
+                          <div className="flex gap-1">
+                            <button onClick={() => setEditingNetwork({ ...network, _original: network.chain })} className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 transition-none">
                               <Pencil className="w-3 h-3" />
                             </button>
-                            <button onClick={() => deleteNetwork(network.chain)} className="p-1.5 rounded-lg border border-brand-border text-brand-muted hover:text-red-400 hover:border-red-500/40 transition-all">
+                            <button onClick={() => deleteNetwork(network.chain)} className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 transition-none">
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
@@ -525,10 +525,10 @@ export default function AdminPage() {
               {/* Mobile cards */}
               <div className="md:hidden space-y-3">
                 {existingNetworks.map((network, i) => (
-                  <div key={i} className="bg-brand-surface border border-brand-border rounded-xl p-4">
+                  <div key={i} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
                     {editingNetwork?._original === network.chain ? (
                       <div className="space-y-3">
-                        <p className="font-mono text-xs text-brand-green font-bold">{network.chain}</p>
+                        <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold">{network.chain}</p>
                         <div className="grid grid-cols-2 gap-2">
                           {([
                             { field: 'withdrawFee',    label: 'Withdraw Fee'    },
@@ -538,7 +538,7 @@ export default function AdminPage() {
                             { field: 'arrivalMins',    label: 'ETA (mins)'      },
                           ] as { field: keyof Pick<Network, 'withdrawFee'|'withdrawFeeUSD'|'minWithdraw'|'minDeposit'|'arrivalMins'>; label: string }[]).map(({ field, label }) => (
                             <div key={field}>
-                              <label className="font-mono text-[9px] text-brand-muted tracking-wider block mb-1">{label}</label>
+                              <label className="font-mono text-[9px] text-gray-500 dark:text-gray-400 tracking-wider block mb-1">{label}</label>
                               <input
                                 type="number"
                                 step="any"
@@ -547,16 +547,16 @@ export default function AdminPage() {
                                 onChange={e => setEditingNetwork(prev =>
                                   prev ? { ...prev, [field]: parseFloat(e.target.value) || 0 } : null
                                 )}
-                                className="w-full bg-brand-bg border border-brand-dim rounded-lg px-2 py-2 font-mono text-xs text-brand-text outline-none"
+                                className="w-full bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-2 font-mono text-xs text-gray-900 dark:text-gray-100 outline-none"
                               />
                             </div>
                           ))}
                         </div>
                         <div className="flex gap-2">
-                          <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-green text-black font-mono text-xs font-bold disabled:opacity-50">
+                          <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white font-mono text-xs font-bold disabled:opacity-50">
                             <Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save'}
                           </button>
-                          <button onClick={() => setEditingNetwork(null)} className="px-4 py-2 rounded-lg border border-brand-border font-mono text-xs text-brand-muted">
+                          <button onClick={() => setEditingNetwork(null)} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 font-mono text-xs text-gray-600 dark:text-gray-400">
                             Cancel
                           </button>
                         </div>
@@ -565,29 +565,29 @@ export default function AdminPage() {
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <div>
-                            <p className="font-mono text-xs font-bold text-brand-text">{network.chain}</p>
-                            <p className="font-mono text-[10px] text-brand-muted">{network.chainId}</p>
+                            <p className="font-mono text-xs font-bold text-gray-900 dark:text-gray-100">{network.chain}</p>
+                            <p className="font-mono text-[10px] text-gray-500 dark:text-gray-400">{network.chainId}</p>
                           </div>
                           <div className="flex gap-1.5">
-                            <button onClick={() => setEditingNetwork({ ...network, _original: network.chain })} className="p-2 rounded-lg border border-brand-border text-brand-muted hover:text-brand-green hover:border-brand-green/40 transition-all">
+                            <button onClick={() => setEditingNetwork({ ...network, _original: network.chain })} className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 transition-none">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => deleteNetwork(network.chain)} className="p-2 rounded-lg border border-brand-border text-brand-muted hover:text-red-400 hover:border-red-500/40 transition-all">
+                            <button onClick={() => deleteNetwork(network.chain)} className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 transition-none">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           {[
-                            { label: 'Fee',      value: network.withdrawFee === 0 ? '🆓 FREE' : String(network.withdrawFee) },
+                            { label: 'Fee',      value: network.withdrawFee === 0 ? 'Free' : String(network.withdrawFee) },
                             { label: 'Fee USD',  value: network.withdrawFeeUSD != null ? `$${network.withdrawFeeUSD}` : '—' },
                             { label: 'Min Out',  value: String(network.minWithdraw) },
                             { label: 'Min In',   value: String(network.minDeposit)  },
                             { label: 'ETA',      value: `${network.arrivalMins}m`   },
                           ].map(({ label, value }) => (
-                            <div key={label} className="bg-brand-bg rounded-lg px-2 py-2">
-                              <p className="font-mono text-[9px] text-brand-muted tracking-wider">{label}</p>
-                              <p className={`font-mono text-xs font-bold mt-0.5 ${value.includes('FREE') ? 'text-brand-green' : 'text-brand-text'}`}>{value}</p>
+                            <div key={label} className="bg-gray-50 dark:bg-gray-950 rounded-lg px-2 py-2 border border-gray-100 dark:border-gray-800">
+                              <p className="font-mono text-[9px] text-gray-500 dark:text-gray-400 tracking-wider">{label}</p>
+                              <p className={`font-mono text-xs font-bold mt-0.5 ${value === 'Free' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-900 dark:text-gray-100'}`}>{value}</p>
                             </div>
                           ))}
                         </div>
@@ -602,15 +602,15 @@ export default function AdminPage() {
           {/* Add new chain form */}
           {addingNetwork && (
             <motion.div
-              className="bg-brand-surface border border-brand-green/20 rounded-xl p-4 md:p-5"
+              className="bg-white dark:bg-gray-900 border border-emerald-500/30 rounded-xl p-4 md:p-5"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
             >
               <div className="flex items-center justify-between mb-4">
-                <p className="font-mono text-xs text-brand-green tracking-widest font-bold">
-                  ✦ ADD CHAIN — {selectedCoin.symbol}
+                <p className="font-mono text-xs text-emerald-700 dark:text-emerald-400 tracking-widest font-bold">
+                  ADD CHAIN — {selectedCoin.symbol}
                 </p>
-                <button onClick={() => { setAddingNetwork(false); setNewNetwork({ ...EMPTY_NETWORK }); }} className="text-brand-muted hover:text-brand-text">
+                <button onClick={() => { setAddingNetwork(false); setNewNetwork({ ...EMPTY_NETWORK }); }} className="text-gray-500 dark:text-gray-400">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -627,7 +627,7 @@ export default function AdminPage() {
                   { key: 'arrivalMins',    label: 'Arrival (min)',      placeholder: '1',                 type: 'number' },
                 ].map(({ key, label, placeholder, type }) => (
                   <div key={key}>
-                    <label className="font-mono text-[10px] text-brand-muted block mb-1.5 tracking-wider">{label}</label>
+                    <label className="font-mono text-[10px] text-gray-600 dark:text-gray-400 block mb-1.5 tracking-wider">{label}</label>
                     <input
                       type={type}
                       step="any"
@@ -638,18 +638,18 @@ export default function AdminPage() {
                         ...prev,
                         [key]: type === 'text' ? e.target.value : (parseFloat(e.target.value) || 0),
                       }))}
-                      className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2.5 font-mono text-xs text-brand-text placeholder:text-brand-muted/40 outline-none focus:border-brand-dim transition-colors"
+                      className="w-full bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2.5 font-mono text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-600 outline-none transition-none"
                     />
                   </div>
                 ))}
               </div>
 
               <div className="flex gap-2">
-                <button onClick={saveNewNetwork} disabled={saving} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-green to-brand-blue text-black font-mono text-xs font-bold disabled:opacity-50 transition-all">
+                <button onClick={saveNewNetwork} disabled={saving} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-600 dark:bg-emerald-500 text-white font-mono text-xs font-bold disabled:opacity-50 transition-none">
                   <Save className="w-3.5 h-3.5" />
                   {saving ? 'Saving...' : 'Save Chain'}
                 </button>
-                <button onClick={() => { setAddingNetwork(false); setNewNetwork({ ...EMPTY_NETWORK }); }} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl border border-brand-border font-mono text-xs text-brand-muted hover:text-brand-text transition-colors">
+                <button onClick={() => { setAddingNetwork(false); setNewNetwork({ ...EMPTY_NETWORK }); }} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 font-mono text-xs text-gray-600 dark:text-gray-400 transition-none">
                   <X className="w-3.5 h-3.5" />
                   Cancel
                 </button>
@@ -658,10 +658,10 @@ export default function AdminPage() {
           )}
 
           {existingNetworks.length === 0 && !addingNetwork && (
-            <div className="bg-brand-surface border border-dashed border-brand-border rounded-xl p-10 text-center">
-              <p className="font-mono text-sm text-brand-muted mb-1">{selectedCoin.symbol} has no fee data yet</p>
-              <p className="font-mono text-[11px] text-brand-muted/60 mb-4">Add withdrawal chains and their fees manually</p>
-              <button onClick={() => setAddingNetwork(true)} className="inline-flex items-center gap-1.5 font-mono text-xs text-brand-green border border-brand-green/30 hover:bg-brand-green/10 rounded-lg px-4 py-2 transition-all">
+            <div className="bg-white dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-10 text-center">
+              <p className="font-mono text-sm text-gray-600 dark:text-gray-400 mb-1">{selectedCoin.symbol} has no fee data yet</p>
+              <p className="font-mono text-[11px] text-gray-400 dark:text-gray-500 mb-4">Add withdrawal chains and their fees manually</p>
+              <button onClick={() => setAddingNetwork(true)} className="inline-flex items-center gap-1.5 font-mono text-xs text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-4 py-2 transition-none">
                 <Plus className="w-3.5 h-3.5" />
                 Add First Chain
               </button>
@@ -674,26 +674,26 @@ export default function AdminPage() {
 
   // ── Main render ────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-brand-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex-shrink-0">
         <div>
-          <h1 className="font-mono font-bold text-base md:text-xl text-brand-green tracking-[0.1em] md:tracking-[0.15em]">
+          <h1 className="font-mono font-bold text-base md:text-xl text-emerald-600 dark:text-emerald-400 tracking-[0.1em] md:tracking-[0.15em]">
             ADMIN — FEE MANAGER
           </h1>
           {/* Mobile breadcrumb */}
-          <p className="md:hidden font-mono text-[10px] text-brand-muted mt-0.5">
+          <p className="md:hidden font-mono text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
             {mobileStep === 0 && 'Select exchange'}
             {mobileStep === 1 && `${EXCHANGES.find(e => e.key === selectedEx)?.label} → select coin`}
             {mobileStep === 2 && `${selectedCoin?.symbol} · ${EXCHANGES.find(e => e.key === selectedEx)?.label}`}
           </p>
-          <p className="hidden md:block font-mono text-[10px] text-brand-muted mt-0.5 tracking-widest">
+          <p className="hidden md:block font-mono text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 tracking-widest">
             SELECT EXCHANGE → SEARCH COIN → UPDATE FEES
           </p>
         </div>
-        <span className="hidden sm:block font-mono text-xs text-brand-muted border border-brand-border rounded-lg px-3 py-1.5">
-          <span className="text-brand-green">{user?.email}</span>
+        <span className="hidden sm:block font-mono text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5">
+          <span className="text-emerald-600 dark:text-emerald-400">{user?.email}</span>
         </span>
       </div>
 
@@ -701,10 +701,10 @@ export default function AdminPage() {
       <AnimatePresence>
         {toast && (
           <motion.div
-            className={`mx-4 md:mx-6 mt-3 px-4 py-2.5 rounded-xl font-mono text-xs border flex-shrink-0 ${
+            className={`mx-4 md:mx-6 mt-3 px-4 py-2.5 rounded-xl font-mono text-xs border flex-shrink-0 z-50 ${
               toast.type === 'success'
-                ? 'bg-brand-green/10 border-brand-green/30 text-brand-green'
-                : 'bg-red-950 border-red-800 text-red-400'
+                ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400'
+                : 'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-800/50 text-red-700 dark:text-red-400'
             }`}
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -717,13 +717,13 @@ export default function AdminPage() {
 
       {/* ── DESKTOP: 3-column layout ───────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
-        <div className="w-44 flex-shrink-0 border-r border-brand-border overflow-y-auto">
+        <div className="w-44 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-y-auto">
           <ExchangeList />
         </div>
-        <div className="w-56 flex-shrink-0 border-r border-brand-border flex flex-col overflow-hidden">
+        <div className="w-56 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col overflow-hidden">
           {!selectedEx ? (
             <div className="flex-1 flex items-center justify-center p-4">
-              <p className="font-mono text-[10px] text-brand-muted tracking-widest text-center">
+              <p className="font-mono text-[10px] text-gray-400 dark:text-gray-600 tracking-widest text-center">
                 SELECT AN EXCHANGE TO SEE LISTED COINS
               </p>
             </div>

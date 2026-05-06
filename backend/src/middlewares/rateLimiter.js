@@ -8,7 +8,7 @@ const onLimitReached = (req, res, options) => {
 // General API limit
 const general = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
-  max: 200,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -24,13 +24,13 @@ const general = rateLimit({
 // Strict limit for the AI agent endpoint (expensive Claude calls)
 const agentLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 min
-  max: 15,
+  max: 150,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.ip + (req.user?.id || ''),
   message: {
     success: false,
-    error: { message: 'Agent rate limit reached. Max 15 requests/minute.' },
+    error: { message: 'Agent rate limit reached. Max 150 requests/minute.' },
   },
   handler: (req, res, next, options) => {
     onLimitReached(req, res, options);
@@ -41,12 +41,12 @@ const agentLimiter = rateLimit({
 // Looser limit for fee reads (cheap DB queries)
 const feesLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     success: false,
-    error: { message: 'Too many fee requests. Max 100/minute.' },
+    error: { message: 'Too many fee requests. Max 1000/minute.' },
   },
 });
 
