@@ -30,7 +30,6 @@ export default function ChatWindow({ conversationId }: Props) {
   } = useChat(conversationId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [editIndex,   setEditIndex]   = useState<number | null>(null);
   const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
@@ -81,7 +80,7 @@ export default function ChatWindow({ conversationId }: Props) {
     }
   };
 
-  /* ── Bug 2 fix: navigate to /chat so conversationId becomes undefined ── */
+  /* ── Bug 2 fix ──────────────────────────────────────────────────────── */
   const handleNewChat = useCallback(() => {
     handleCancelEdit();
     clear();
@@ -94,20 +93,26 @@ export default function ChatWindow({ conversationId }: Props) {
   );
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
+    /*
+     * KEY FIX: `overflow-hidden` on the root + `flex flex-col` with an
+     * explicit height source (inherited from <main> in ClientLayout which
+     * is `flex-1 flex flex-col min-w-0 overflow-hidden`).
+     *
+     * DO NOT add an extra wrapping div with h-full in the page — that
+     * creates a second flex container that fights this one and causes the
+     * header to get clipped during initial paint / hydration.
+     */
+    <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
 
-      {/* Static Header — hamburger reads sidebar context internally */}
+      {/* ── Header — always rendered first, never scrolls ─────────────── */}
       <Header
         anonCount={anonCount}
         anonLimit={anonLimit}
         onNewChat={handleNewChat}
       />
 
-      {/* Message feed */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto overscroll-contain"
-      >
+      {/* ── Scrollable message area — takes all remaining space ────────── */}
+      <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
         <div className="max-w-3xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
 
           {/* History loading skeleton */}
@@ -166,11 +171,11 @@ export default function ChatWindow({ conversationId }: Props) {
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-sm px-4 sm:px-5 py-3 sm:py-3.5">
                 <div className="flex gap-1.5 items-center h-4">
-                  {[0, 1, 2].map(i => (
+                  {[0, 1, 2].map(j => (
                     <span
-                      key={i}
+                      key={j}
                       className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-pulse"
-                      style={{ animationDelay: `${i * 0.2}s` }}
+                      style={{ animationDelay: `${j * 0.2}s` }}
                     />
                   ))}
                 </div>
@@ -182,7 +187,7 @@ export default function ChatWindow({ conversationId }: Props) {
         </div>
       </div>
 
-      {/* Message input */}
+      {/* ── Input — always pinned to bottom, never scrolls ─────────────── */}
       <MessageInput
         onSend={handleSendOrEdit}
         loading={loading || loadingHistory}
@@ -190,7 +195,7 @@ export default function ChatWindow({ conversationId }: Props) {
         onCancelEdit={editIndex !== null ? handleCancelEdit : undefined}
       />
 
-      {/* Auth gate */}
+      {/* ── Auth gate overlay ───────────────────────────────────────────── */}
       <AnimatePresence>
         {showAuthGate && (
           <AuthGate onClose={() => setShowAuthGate(false)} />
