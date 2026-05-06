@@ -15,6 +15,7 @@ const NAV_TOP = [
   { href: '/fees',  icon: BarChart3,     label: 'Fee Tables',    adminOnly: false },
   { href: '/admin', icon: ShieldCheck,   label: 'Admin',         adminOnly: true  },
   { href: '/admin/sync', icon: RefreshCw, label: 'Auto-Sync', adminOnly: true },
+  { href: '/admin/users', icon: ShieldCheck, label: 'User Management', adminOnly: true },
 ];
 
 export default function Sidebar() {

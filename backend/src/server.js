@@ -10,6 +10,7 @@ const { notFound, globalError } = require('./middlewares/errorHandler');
 const logger = require('../utils/logger');
 const conversationsRoute = require('./routes/conversations');
 const adminRoute         = require('./routes/admin');
+const usersRoute = require('./routes/users');
 const agentRoute = require('./routes/agent');
 const feesRoute  = require('./routes/fees');
 const syncRoute  = require('./routes/sync');
@@ -53,6 +54,7 @@ app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
 app.use('/api/sync',          syncRoute);
 app.use('/api/admin',         adminRoute);
+app.use('/api/admin/users', usersRoute);
 
 // ── 404 + Global error handlers ───────────────────────────────────────────
 app.use(notFound);
