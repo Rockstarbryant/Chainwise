@@ -16,13 +16,12 @@ export default function Header({ anonCount = 0, anonLimit = 3, onNewChat }: Prop
 
   return (
     <header className="
-      flex-shrink-0 h-14
+      h-14
       flex items-center justify-between
       px-3 sm:px-5
       border-b border-zinc-200 dark:border-zinc-800
       bg-white/90 dark:bg-zinc-950/90
       backdrop-blur-sm
-      sticky top-0 z-30
     ">
       {/* Left — hamburger + mobile logo */}
       <div className="flex items-center gap-3">

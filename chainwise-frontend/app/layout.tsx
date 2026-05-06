@@ -13,7 +13,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="flex h-screen overflow-hidden bg-brand-bg">
+      {/*
+        h-dvh  → uses the *dynamic* viewport height unit so the layout
+        correctly tracks the mobile browser chrome (URL bar) shrinking/
+        expanding, instead of the static 100vh which causes a layout shift
+        that clips the sticky header on first paint.
+      */}
+      <body className="flex h-dvh overflow-hidden bg-brand-bg">
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

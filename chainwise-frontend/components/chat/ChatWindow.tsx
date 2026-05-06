@@ -94,22 +94,28 @@ export default function ChatWindow({ conversationId }: Props) {
 
   return (
     /*
-     * KEY FIX: `overflow-hidden` on the root + `flex flex-col` with an
-     * explicit height source (inherited from <main> in ClientLayout which
-     * is `flex-1 flex flex-col min-w-0 overflow-hidden`).
+     * The root div is a flex column that fills the height given by <main>
+     * in ClientLayout (`flex-1 flex flex-col min-w-0 overflow-hidden`).
      *
-     * DO NOT add an extra wrapping div with h-full in the page — that
-     * creates a second flex container that fights this one and causes the
-     * header to get clipped during initial paint / hydration.
+     * MOBILE FIX: Header is the FIRST child of this flex column and has
+     * `flex-shrink-0` so it never collapses. It must NOT be inside the
+     * scrollable div — sticky positioning inside an overflow:auto container
+     * is unreliable on mobile Chrome and causes the header to disappear
+     * during the initial URL-bar-collapse transition.
+     *
+     * We also removed `sticky top-0` from Header and rely purely on the
+     * flex-column stacking order to keep it pinned at the top.
      */
     <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
 
-      {/* ── Header — always rendered first, never scrolls ─────────────── */}
-      <Header
-        anonCount={anonCount}
-        anonLimit={anonLimit}
-        onNewChat={handleNewChat}
-      />
+      {/* ── Header — flex-shrink-0 keeps it always visible ────────────── */}
+      <div className="flex-shrink-0 z-30">
+        <Header
+          anonCount={anonCount}
+          anonLimit={anonLimit}
+          onNewChat={handleNewChat}
+        />
+      </div>
 
       {/* ── Scrollable message area — takes all remaining space ────────── */}
       <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
