@@ -9,11 +9,12 @@ const { general }     = require('./middlewares/rateLimiter');
 const { notFound, globalError } = require('./middlewares/errorHandler');
 const logger = require('../utils/logger');
 const conversationsRoute = require('./routes/conversations');
+const giveawayRoutes     = require('./routes/giveaways');
 const adminRoute         = require('./routes/admin');
-const usersRoute = require('./routes/users');
-const agentRoute = require('./routes/agent');
-const feesRoute  = require('./routes/fees');
-const syncRoute  = require('./routes/sync');
+const usersRoute  = require('./routes/users');
+const agentRoute  = require('./routes/agent');
+const feesRoute   = require('./routes/fees');
+const syncRoute   = require('./routes/sync');
 
 const app = express();
 
@@ -52,29 +53,26 @@ app.get('/health', (_, res) => {
 app.use('/api/agent',         agentRoute);
 app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
+app.use('/api/giveaways',     giveawayRoutes);
 app.use('/api/sync',          syncRoute);
 app.use('/api/admin',         adminRoute);
-app.use('/api/admin/users', usersRoute);
+app.use('/api/admin/users',   usersRoute);
 
 // ── 404 + Global error handlers ───────────────────────────────────────────
 app.use(notFound);
 app.use(globalError);
 
 // ── Redis readiness check ──────────────────────────────────────────────────
-// Builds the probe connection the same way redis.js does — URL as first arg,
-// options as second — so TLS and all settings are applied identically.
 const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
   const { Redis } = require('ioredis');
   const REDIS_URL = process.env.REDIS_URL || null;
 
-  // Mirror the TLS detection from redis.js
   const isTlsUrl = (url) =>
     url.startsWith('rediss://') ||
     url.includes('redislabs.com') ||
     url.includes('upstash.io') ||
     url.includes('redis.cloud');
 
-  // Build probe options — must match what makeRedis() does in redis.js
   const makeProbe = () => {
     if (REDIS_URL) {
       const tlsOptions = isTlsUrl(REDIS_URL) ? { tls: { rejectUnauthorized: false } } : {};
@@ -134,13 +132,19 @@ const start = async () => {
     logger.info(`   Environment    →  ${process.env.NODE_ENV || 'development'}`);
   });
 
-  // Non-blocking — HTTP is already up when this runs
+  // Non-blocking — Redis/BullMQ startup, does not block HTTP
   waitForRedisAndStartWorker();
+
+  // Giveaway scan cron — independent of Redis/BullMQ, only needs MongoDB
+  const { startGiveawayScanCron } = require('./jobs/giveawayScan');
+  startGiveawayScanCron();
 };
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 const shutdown = async (signal) => {
-  try { const { stopCron } = require('./jobs/cronJob'); stopCron(); } catch (_) {}
+  try { const { stopCron }             = require('./jobs/cronJob');        stopCron();             } catch (_) {}
+  try { const { stopGiveawayScanCron } = require('./jobs/giveawayScan');   stopGiveawayScanCron(); } catch (_) {}
+
   logger.info(`${signal} received — shutting down gracefully...`);
 
   server.close(async () => {

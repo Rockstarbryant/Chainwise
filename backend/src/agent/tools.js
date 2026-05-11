@@ -117,17 +117,24 @@ const tools = [
     },
   },
 
+  
   {
     type: 'function',
     function: {
       name: 'scan_giveaways',
-      description: 'Scan an exchange official Twitter/X account for active giveaways, airdrops, and promotions in the last 48 hours.',
+      description: `Retrieve active crypto giveaways from major CEX exchanges.
+  Returns prize pool, exact participation requirements (follow/repost/reply), tweet link, confidence score.
+  Reads from a MongoDB cache updated every 2 hours — never calls Twitter live per query.
+  Use when user asks about: giveaways, airdrops, free crypto, how to win on Binance, etc.`,
       parameters: {
         type: 'object',
         properties: {
-          exchange: { type: 'string', description: 'Exchange name: binance, bybit, coinex, bitget, kucoin, gateio' },
+          exchange: {
+            type: 'string',
+            description: 'Optional filter: binance, bybit, kucoin, bitget, gateio, coinex, okx, htx, mexc, cryptocom',
+          },
         },
-        required: ['exchange'],
+        required: [],
       },
     },
   },
@@ -500,6 +507,13 @@ If a fee is absurdly high (e.g., 4.5 USDT for ERC20 USDT) → REJECT it and prop
 - Table or bullet list sorted cheapest first
 - Include: chain | fee | min withdrawal | arrival time
 - End with one-line verification reminder
+
+**For giveaways: call scan_giveaways tool. Give the user:**
+  1. Exchange name + tweet link (always include the link)
+  2. Prize pool and coins
+  3. Exact steps: Follow @handle → Repost → Reply with [text]
+  4. Confidence % — warn if below 60%
+  5. ⚠️ Never send funds. Only official exchange accounts. Verify before participating.
 
 **For errors / unavailable data:**
 - Be specific about what failed (rate limit, not listed, below minimum)
