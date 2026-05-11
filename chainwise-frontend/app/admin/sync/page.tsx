@@ -12,9 +12,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 const EXCHANGES = [
   { key: 'binance', label: 'Binance',  needsPassphrase: false, docs: 'https://www.binance.com/en/my/settings/api-management' },
   { key: 'bybit',   label: 'Bybit',    needsPassphrase: false, docs: 'https://www.bybit.com/app/user/api-management' },
+  { key: 'okx',     label: 'OKX',      needsPassphrase: true,  docs: 'https://www.okx.com/account/my-api' },
   { key: 'kucoin',  label: 'KuCoin',   needsPassphrase: true,  docs: 'https://www.kucoin.com/account/api' },
   { key: 'bitget',  label: 'Bitget',   needsPassphrase: true,  docs: 'https://www.bitget.com/account/newapi' },
   { key: 'gateio',  label: 'Gate.io',  needsPassphrase: false, docs: 'https://www.gate.io/myaccount/apiv4keys' },
+  { key: 'mexc',    label: 'MEXC',     needsPassphrase: false, docs: 'https://www.mexc.com/user/openapi' },
+  { key: 'bitmart', label: 'BitMart',  needsPassphrase: true,  docs: 'https://www.bitmart.com/account/api' },
+  { key: 'huobi',   label: 'Huobi/HTX',needsPassphrase: false, docs: 'https://www.htx.com/account/api' },
   { key: 'coinex',  label: 'CoinEx',   needsPassphrase: false, docs: 'https://www.coinex.com/account/api' },
 ];
 

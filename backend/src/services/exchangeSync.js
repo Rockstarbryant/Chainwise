@@ -13,6 +13,10 @@ const CCXT_MAP = {
   bitget:  'bitget',
   gateio:  'gateio',
   coinex:  'coinex',
+  okx:     'okx',
+  mexc:    'mexc',
+  bitmart: 'bitmart',
+  htx:     'htx', // Huobi rebranded to HTX but CCXT still uses 'huobi' as the key
 };
 
 function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') {
@@ -40,6 +44,14 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
         recvWindow:  10000,
       },
     },
+     okx: {
+      apiKey,
+      secret:          apiSecret,
+      password:        passphrase,   // OKX calls this "passphrase" but CCXT uses `password`
+      timeout:         30000,
+      enableRateLimit: true,
+      options:         { defaultType: 'spot' },
+    },
     kucoin: {
       apiKey,
       secret:          apiSecret,
@@ -62,6 +74,28 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
       timeout:         30000,
       enableRateLimit: true,
     },
+    mexc: {
+    apiKey,
+    secret:          apiSecret,
+    timeout:         30000,
+    enableRateLimit: true,
+    options:         { defaultType: 'spot' },
+    },
+     bitmart: {
+    apiKey,
+    secret:          apiSecret,
+    uid:             passphrase,   // BitMart uses `uid` not `password` in CCXT
+    timeout:         30000,
+    enableRateLimit: true,
+    options:         { defaultType: 'spot' },
+  },
+   htx: {
+    apiKey,
+    secret:          apiSecret,
+    timeout:         30000,
+    enableRateLimit: true,
+    options:         { defaultType: 'spot' },
+  },
     coinex: {
       apiKey,
       secret:          apiSecret,
