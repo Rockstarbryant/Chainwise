@@ -13,7 +13,7 @@ const RequirementSchema = new Schema(
 const GiveawaySchema = new Schema(
   {
     // ─── Identity ────────────────────────────────────────────────────────────
-    tweetId:             { type: String, required: true, unique: true },
+    //tweetId:             { type: String, required: true, unique: true },
     exchange:            { type: String, required: true, lowercase: true, trim: true },
     exchangeHandle:      { type: String },           // "Bybit_Official"
     exchangeDisplayName: { type: String },           // "Bybit"

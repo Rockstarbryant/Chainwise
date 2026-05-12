@@ -50,6 +50,15 @@ const feesLimiter = rateLimit({
   },
 });
 
+// P2P market data (public, refreshes every 15min so low limit is fine)
+const p2pLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max:      30,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { success: false, error: { message: 'Too many P2P requests. Max 30/minute.' } },
+});
+
 // Auth routes — very strict
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -62,4 +71,4 @@ const authLimiter = rateLimit({
   },
 });
 
-module.exports = { general, agentLimiter, feesLimiter, authLimiter };
+module.exports = { general, agentLimiter, feesLimiter, authLimiter, p2pLimiter };

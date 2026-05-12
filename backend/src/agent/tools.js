@@ -457,6 +457,47 @@ Use this when plan_cross_exchange_transfer detects a listing mismatch.`,
       },
     },
   },
+
+  {
+  type: 'function',
+  function: {
+    name: 'get_p2p_rates',
+    description: `Get live P2P buy/sell rates for a crypto asset in a specific fiat currency.
+Returns best rate, worst rate, average rate, and top 3 merchant ads for both BUY and SELL sides.
+Use when user asks: "What's the P2P rate for USDT in Kenya?", "How much is BTC on P2P?",
+"Best rate to buy USDT with KES?", or any question about P2P prices/rates.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        asset: { type: 'string', description: 'Crypto to buy/sell: USDT, USDC, BTC, ETH, BNB' },
+        fiat:  { type: 'string', description: 'Fiat currency ISO code: KES, NGN, GHS, ZAR, INR, PKR, USD, EUR, GBP' },
+      },
+      required: ['asset', 'fiat'],
+    },
+  },
+},
+
+{
+  type: 'function',
+  function: {
+    name: 'get_p2p_ads',
+    description: `Fetch live P2P merchant ads with full details: price, min/max limits, payment methods,
+merchant completion rate and order count. Use when user wants to see actual ads/merchants,
+compare rates across exchanges, or find the best P2P offer for a specific amount.
+Supports filtering by exchange, trade direction (BUY/SELL), and amount.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        asset:     { type: 'string', description: 'Crypto asset: USDT, USDC, BTC, ETH' },
+        fiat:      { type: 'string', description: 'Fiat currency: KES, NGN, GHS, ZAR, INR, PKR, USD, EUR' },
+        tradeType: { type: 'string', description: 'BUY = user buying crypto with fiat | SELL = user selling crypto for fiat' },
+        exchange:  { type: 'string', description: 'Optional: filter to one exchange — binance, bybit, okx, kucoin, bitget, htx, mexc. Default: all' },
+        limit:     { type: 'number', description: 'Number of ads to return (default 10, max 20)' },
+      },
+      required: ['asset', 'fiat', 'tradeType'],
+    },
+  },
+},
 ];
 
 // ── SYSTEM PROMPT ──────────────────────────────────────────────────────────
@@ -537,6 +578,17 @@ For users in Kenya (KE), Nigeria (NG), Ghana (GH), South Africa (ZA), Tanzania (
 - Prioritize exchanges with M-Pesa / mobile money support
 - Flag exchanges that block African IP addresses
 - BEP20 and TRC20 are most popular for African P2P
+
+## P2P INTELLIGENCE
+
+When users ask about P2P rates or want to buy/sell crypto with local currency:
+- Use get_p2p_rates for a quick rate overview (best/avg/worst across all exchanges)
+- Use get_p2p_ads when they need merchant details, specific limits, or payment methods
+- Always show: best rate | fiat currency | payment methods available | min trade size
+- For African users: M-Pesa (KES), Bank Transfer (NGN/GHS/ZAR) are primary payment methods
+- WARN users: Always check merchant completion rate ≥95% and ≥100 orders before trading
+- NEVER release crypto before confirming fiat payment is received and cleared
+- P2P rates fluctuate — tell users to verify on the exchange before executing
 
 ## ABSOLUTE RULES
 - NEVER recommend a network without verifying the destination exchange supports that deposit network

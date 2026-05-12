@@ -1,4 +1,5 @@
 const ExchangeFee = require('../models/ExchangeFee');
+const { fetchP2PAds } = require('../services/p2p');
 const coingecko   = require('../services/coingecko');
 const lifi        = require('../services/lifi');
 const twitter     = require('../services/twitter');
@@ -212,54 +213,117 @@ async function getCoinExchanges({ coin }) {
 }
 
 // ── 6. check_p2p_availability ──────────────────────────────────────────────
+ 
 async function checkP2PAvailability({ country }) {
-  const code = country.toUpperCase();
+  const code        = country.toUpperCase();
   const allExchanges = await ExchangeFee.find({});
-
-  const supported = [];
+ 
+  // ── 1. Static country support (from ExchangeFee DB) ───────────────────
+  // These fields (p2p, p2pCountries) still come from your seed/admin data.
+  // They tell us WHICH exchanges operate in the country.
+  const supported   = [];
   const unsupported = [];
-
+ 
   for (const ex of allExchanges) {
     if (ex.p2p && ex.p2pCountries.includes(code)) {
-      supported.push({ exchange: ex.displayName, minUSD: ex.p2pMinUSD });
+      supported.push({ exchange: ex.displayName, exchangeKey: ex.exchange, minUSD: ex.p2pMinUSD });
     } else {
       unsupported.push(ex.displayName);
     }
   }
-
-  const mobileMoney = ['KE', 'NG', 'GH', 'TZ', 'UG', 'ET', 'ZM', 'RW'];
-  const hasMobileMoney = mobileMoney.includes(code);
-
+ 
+  // ── 2. Live rate snapshot (from P2P API) ──────────────────────────────
+  // Map country code → fiat currency for the live rate lookup
+  const COUNTRY_FIAT = {
+    KE: 'KES', NG: 'NGN', GH: 'GHS', ZA: 'ZAR',
+    IN: 'INR', PK: 'PKR', TZ: 'TZS', UG: 'UGX',
+    EG: 'EGP', MA: 'MAD', US: 'USD', GB: 'GBP',
+  };
+ 
+  const fiat      = COUNTRY_FIAT[code];
+  let liveRates   = null;
+ 
+  if (fiat) {
+    try {
+      const [buyResult, sellResult] = await Promise.all([
+        fetchP2PAds({ exchange: 'all', asset: 'USDT', fiat, tradeType: 'BUY',  limit: 3 }),
+        fetchP2PAds({ exchange: 'all', asset: 'USDT', fiat, tradeType: 'SELL', limit: 3 }),
+      ]);
+ 
+      liveRates = {
+        fiat,
+        asset:    'USDT',
+        buyRate:  buyResult.summary.lowestRate,   // cheapest seller = best buy rate for user
+        sellRate: sellResult.summary.highestRate, // highest buyer   = best sell rate for user
+        avgBuy:   buyResult.summary.averageRate,
+        avgSell:  sellResult.summary.averageRate,
+        topBuyAds: buyResult.ads.slice(0, 2).map(a => ({
+          exchange:       a.exchange,
+          price:          a.price,
+          minAmount:      a.minAmount,
+          maxAmount:      a.maxAmount,
+          paymentMethods: a.paymentMethods.slice(0, 2),
+          merchant:       { name: a.merchant.name, completionRate: a.merchant.completionRate },
+        })),
+        topSellAds: sellResult.ads.slice(0, 2).map(a => ({
+          exchange:       a.exchange,
+          price:          a.price,
+          minAmount:      a.minAmount,
+          maxAmount:      a.maxAmount,
+          paymentMethods: a.paymentMethods.slice(0, 2),
+          merchant:       { name: a.merchant.name, completionRate: a.merchant.completionRate },
+        })),
+      };
+    } catch (_) {
+      // Live rates unavailable — still return static data
+      liveRates = { error: 'Live rates temporarily unavailable', fiat };
+    }
+  }
+ 
+  const MOBILE_MONEY = {
+    KE: ['M-Pesa', 'Airtel Money'],
+    NG: ['Bank Transfer', 'Opay', 'Palmpay'],
+    GH: ['MTN Mobile Money', 'Vodafone Cash'],
+    ZA: ['FNB', 'Standard Bank', 'Capitec'],
+    TZ: ['M-Pesa TZ', 'Tigopesa', 'Halopesa'],
+    UG: ['MTN MoMo', 'Airtel Money UG'],
+    ET: ['Telebirr', 'CBE Birr'],
+  };
+ 
   return {
-    country: code,
+    country:              code,
+    fiat:                 fiat || 'unknown',
     supported,
     unsupported,
-    hasMobileMoneySupport: hasMobileMoney,
-    recommendation: supported.length > 0
-      ? `For ${code}: Use ${supported[0].exchange} P2P (min $${supported[0].minUSD})${hasMobileMoney ? ' — supports mobile money payments' : ''}`
-      : `No P2P in our database for ${code}. Try: LocalBitcoins, Paxful, Noones, or Binance P2P if available.`,
+    hasMobileMoneySupport: ['KE','NG','GH','TZ','UG','ET','ZM','RW'].includes(code),
+    paymentMethods:       MOBILE_MONEY[code] || ['Bank Transfer', 'Cash'],
+    liveRates,
+    recommendation:       supported.length > 0
+      ? `For ${code}: Use ${supported[0].exchange} P2P (min $${supported[0].minUSD})${liveRates?.buyRate ? ` — current best buy rate: ${liveRates.buyRate} ${fiat}/USDT` : ''}`
+      : `No P2P in our database for ${code}. Try: Noones.com or Paxful.com.`,
   };
 }
 
 // ── 7. plan_zero_gas_recovery ──────────────────────────────────────────────
 async function planZeroGasRecovery({ stuckToken, stuckChain, stuckAmountUSD, userCountry, targetExchange }) {
-  const country  = (userCountry  || 'KE').toUpperCase();
+  const country  = (userCountry   || 'KE').toUpperCase();
   const targetEx = (targetExchange || 'bybit').toLowerCase();
-
+ 
+  // Get live P2P availability (now returns real rates too)
   const p2p     = await checkP2PAvailability({ country });
   const bestP2P = p2p.supported[0];
-
-  const gasToken    = 'USDT';
-  const feesDoc     = await ExchangeFee.findOne({ exchange: targetEx });
+ 
+  const gasToken     = 'USDT';
+  const feesDoc      = await ExchangeFee.findOne({ exchange: targetEx });
   const gasTokenData = feesDoc?.coins.find(c => c.symbol === gasToken);
-  const l2Networks  = (gasTokenData?.networks || [])
+  const l2Networks   = (gasTokenData?.networks || [])
     .filter(n => n.isActive !== false)
     .filter(n => ['arbitrum', 'base', 'optimism', 'bsc', 'polygon'].includes(normaliseChain(n.chainId)))
     .sort((a, b) => a.withdrawFee - b.withdrawFee);
-
-  const gasRoute   = l2Networks[0];
+ 
+  const gasRoute     = l2Networks[0];
   const bridgeTarget = gasRoute ? normaliseChain(gasRoute.chainId) : 'arbitrum';
-
+ 
   let bridgeRoute = null;
   try {
     bridgeRoute = await lifi.getBestRoute({
@@ -269,36 +333,54 @@ async function planZeroGasRecovery({ stuckToken, stuckChain, stuckAmountUSD, use
     });
     if (bridgeRoute?.error) bridgeRoute = null;
   } catch (_) {}
-
-  const gasNeeded   = (gasRoute?.minWithdraw || 1) + (gasRoute?.withdrawFee || 0) + 0.5;
-  const steps       = [];
-
+ 
+  const gasNeeded = (gasRoute?.minWithdraw || 1) + (gasRoute?.withdrawFee || 0) + 0.5;
+  const steps     = [];
+ 
+  // Use live rate in the step description if available
+  const liveRate    = p2p.liveRates?.buyRate;
+  const fiatAmount  = liveRate ? `≈ ${(gasNeeded * liveRate).toFixed(0)} ${p2p.fiat}` : '';
+ 
   if (bestP2P) {
-    steps.push(`**Step 1 — Get gas money via P2P:**\nBuy $${gasNeeded.toFixed(2)} USDT on **${bestP2P.exchange}** P2P (min $${bestP2P.minUSD}). Pay with mobile money or bank transfer.`);
-    steps.push(`**Step 2 — Withdraw gas to your wallet:**\nWithdraw USDT from ${bestP2P.exchange} via **${gasRoute?.chain || 'BEP20'}** to your wallet.\nFee: ${gasRoute?.withdrawFee || 0.2} USDT | Arrival: ${arrivalLabel(gasRoute?.chainId || 'bsc')}`);
+    steps.push(
+      `**Step 1 — Get gas money via P2P:**\n` +
+      `Buy $${gasNeeded.toFixed(2)} USDT ${fiatAmount ? `(${fiatAmount}) ` : ''}on **${bestP2P.exchange}** P2P ` +
+      `(min $${bestP2P.minUSD}). Pay with ${(p2p.paymentMethods || []).slice(0,2).join(' or ')}.` +
+      (liveRate ? `\nCurrent buy rate: **${liveRate} ${p2p.fiat}/USDT**` : '')
+    );
+    steps.push(
+      `**Step 2 — Withdraw gas to your wallet:**\n` +
+      `Withdraw USDT from ${bestP2P.exchange} via **${gasRoute?.chain || 'BEP20'}** to your wallet.\n` +
+      `Fee: ${gasRoute?.withdrawFee || 0.2} USDT | Arrival: ${arrivalLabel(gasRoute?.chainId || 'bsc')}`
+    );
   } else {
-    steps.push(`**Step 1 — Get gas money:**\nBuy $${gasNeeded.toFixed(2)} USDT on any available exchange or LocalBitcoins/Noones for your region.`);
-    steps.push(`**Step 2 — Send gas to your wallet:**\nSend a small amount of the native gas token (${bridgeTarget === 'ethereum' ? 'ETH' : bridgeTarget === 'bsc' ? 'BNB' : bridgeTarget === 'arbitrum' ? 'ETH' : 'gas token'}) to your ${stuckChain} address.`);
+    steps.push(`**Step 1 — Get gas money:**\nBuy $${gasNeeded.toFixed(2)} USDT on Noones.com or Paxful.com for your region.`);
+    steps.push(`**Step 2 — Send gas to your wallet:**\nSend a small amount of the native gas token to your ${stuckChain} address.`);
   }
-
+ 
   if (normaliseChain(stuckChain) !== bridgeTarget) {
     if (bridgeRoute) {
       steps.push(`**Step 3 — Bridge stuck tokens:**\nBridge ${stuckAmountUSD} USD worth of ${stuckToken} from **${stuckChain} → ${bridgeTarget}** via **${bridgeRoute.bridge || 'LI.FI'}**.\nEstimated cost: ~$${bridgeRoute.totalCostUSD || '0.10'}`);
     } else {
       steps.push(`**Step 3 — Relay gas to ${stuckChain}:**\nUse **relay.link** to bridge a tiny amount of gas to ${stuckChain} without needing existing funds there.`);
-      steps.push(`**Step 4 — Withdraw directly:**\nSend ${stuckToken} directly from ${stuckChain} to your ${feesDoc?.displayName || targetEx} deposit address.`);
+      steps.push(`**Step 4 — Withdraw directly:**\nSend ${stuckToken} from ${stuckChain} to your ${feesDoc?.displayName || targetEx} deposit address.`);
     }
   }
-
-  steps.push(`**Final Step — Deposit to exchange:**\nSend ${stuckToken} to **${feesDoc?.displayName || targetEx}** via **${gasRoute?.chain || 'Arbitrum'}** deposit address.\nMin deposit: ${gasRoute?.minDeposit || '1'} ${gasToken}`);
-
+ 
+  steps.push(
+    `**Final Step — Deposit to exchange:**\n` +
+    `Send ${stuckToken} to **${feesDoc?.displayName || targetEx}** via **${gasRoute?.chain || 'Arbitrum'}** deposit address.\n` +
+    `Min deposit: ${gasRoute?.minDeposit || '1'} ${gasToken}`
+  );
+ 
   return {
-    situation: `${stuckAmountUSD} USD of ${stuckToken} stuck on ${stuckChain} with zero gas`,
+    situation:             `${stuckAmountUSD} USD of ${stuckToken} stuck on ${stuckChain} with zero gas`,
     totalEstimatedCostUSD: (gasNeeded + (bridgeRoute?.totalCostUSD || 0.5)).toFixed(2),
     steps,
-    p2pOptions: p2p.supported,
-    bridgeRoute: bridgeRoute || null,
-    warning: '⚠️ Fees change frequently. Verify all amounts on exchanges before executing.',
+    p2pOptions:   p2p.supported,
+    liveRates:    p2p.liveRates,
+    bridgeRoute:  bridgeRoute || null,
+    warning:      '⚠️ Fees change frequently. Verify all amounts on exchanges before executing.',
   };
 }
 
@@ -1012,23 +1094,16 @@ async function compareDepositFees({ coin, network }) {
 }
 
 // ── 25. find_p2p_best_rate ─────────────────────────────────────────────────
-async function findP2PBestRate({ country, coin, direction }) {
+
+async function findP2PBestRate({ country, coin = 'USDT', direction }) {
   const code = country.toUpperCase();
-  const allExchanges = await ExchangeFee.find({});
-
-  const supported = [];
-  for (const ex of allExchanges) {
-    if (ex.p2p && ex.p2pCountries.includes(code)) {
-      const hasCoin = ex.coins.find(c => c.symbol === coin.toUpperCase());
-      supported.push({
-        exchange:      ex.displayName,
-        minUSD:        ex.p2pMinUSD,
-        hasCoinInDB:   !!hasCoin,
-        p2pUrl:        `${ex.website || '#'}/p2p`,
-      });
-    }
-  }
-
+ 
+  const COUNTRY_FIAT = {
+    KE: 'KES', NG: 'NGN', GH: 'GHS', ZA: 'ZAR',
+    IN: 'INR', PK: 'PKR', TZ: 'TZS', UG: 'UGX',
+    EG: 'EGP', MA: 'MAD', US: 'USD', GB: 'GBP',
+  };
+ 
   const MOBILE_MONEY = {
     KE: ['M-Pesa', 'Airtel Money'],
     NG: ['Bank Transfer', 'Opay', 'Palmpay'],
@@ -1038,17 +1113,68 @@ async function findP2PBestRate({ country, coin, direction }) {
     UG: ['MTN MoMo', 'Airtel Money UG'],
     ET: ['Telebirr', 'CBE Birr'],
   };
-
+ 
+  const fiat = COUNTRY_FIAT[code];
+  if (!fiat) {
+    return {
+      error:      `No fiat currency mapping for country ${code}`,
+      suggestion: `Supported countries: ${Object.keys(COUNTRY_FIAT).join(', ')}`,
+    };
+  }
+ 
+  // Determine which trade types to fetch
+  const types = direction?.toUpperCase() === 'BUY'  ? ['BUY']  :
+                direction?.toUpperCase() === 'SELL' ? ['SELL'] :
+                ['BUY', 'SELL'];
+ 
+  const fetches = types.map(t =>
+    fetchP2PAds({ exchange: 'all', asset: coin.toUpperCase(), fiat, tradeType: t, limit: 10 })
+      .then(r => ({ type: t, result: r }))
+      .catch(e => ({ type: t, error: e.message }))
+  );
+ 
+  const fetched = await Promise.all(fetches);
+  const output  = {};
+ 
+  for (const { type, result, error } of fetched) {
+    if (error) {
+      output[type.toLowerCase()] = { error };
+      continue;
+    }
+ 
+    output[type.toLowerCase()] = {
+      bestRate:    type === 'BUY' ? result.summary.lowestRate : result.summary.highestRate,
+      worstRate:   type === 'BUY' ? result.summary.highestRate : result.summary.lowestRate,
+      averageRate: result.summary.averageRate,
+      totalAds:    result.totalAds,
+      // Top 5 ads with full merchant + payment details
+      ads: result.ads.slice(0, 5).map(ad => ({
+        exchange:       ad.exchange,
+        price:          ad.price,
+        minAmount:      ad.minAmount,
+        maxAmount:      ad.maxAmount,
+        available:      ad.available,
+        paymentMethods: ad.paymentMethods,
+        merchant: {
+          name:           ad.merchant.name,
+          completionRate: ad.merchant.completionRate,
+          orderCount:     ad.merchant.orderCount,
+          isVerified:     ad.merchant.isVerified,
+        },
+      })),
+      exchangesWithData: result.summary.exchangesWithData,
+      errors:            result.errors,
+    };
+  }
+ 
   return {
-    country:      code,
-    coin:         coin.toUpperCase(),
-    direction:    direction || 'buy/sell',
-    exchanges:    supported,
+    country:        code,
+    fiat,
+    coin:           coin.toUpperCase(),
+    direction:      direction || 'buy/sell',
     paymentMethods: MOBILE_MONEY[code] || ['Bank Transfer', 'Cash'],
-    note:         supported.length === 0
-      ? `No P2P exchanges in our database for ${code}. Try Noones.com or Paxful.com which have wide African coverage.`
-      : `Compare rates live on each exchange — P2P rates fluctuate based on supply/demand.`,
-    tipForBuyers:  `When buying via P2P, always check the merchant's completion rate (aim for >95%) and trade count (>100 trades).`,
+    ...output,
+    tip: `Always check merchant completion rate ≥95% and ≥100 orders. Never release crypto before confirming payment is cleared.`,
   };
 }
 
@@ -1069,6 +1195,100 @@ async function getExchangeInfo({ exchange }) {
     dataSource:    doc.dataSource,
   };
 }
+
+// ── get_p2p_rates ──────────────────────────────────────────────────────────
+// Returns best/avg/worst buy AND sell rates for a pair across all exchanges.
+// Lightweight — used when agent just needs rate context, not full ad list.
+async function getP2PRates({ asset, fiat }) {
+  try {
+    const [buyResult, sellResult] = await Promise.all([
+      fetchP2PAds({ exchange: 'all', asset, fiat, tradeType: 'BUY',  limit: 5 }),
+      fetchP2PAds({ exchange: 'all', asset, fiat, tradeType: 'SELL', limit: 5 }),
+    ]);
+ 
+    return {
+      asset: asset.toUpperCase(),
+      fiat:  fiat.toUpperCase(),
+      buy: {
+        bestRate:    buyResult.summary.lowestRate,   // lowest = cheapest seller
+        worstRate:   buyResult.summary.highestRate,
+        averageRate: buyResult.summary.averageRate,
+        topAds: buyResult.ads.slice(0, 3).map(ad => ({
+          exchange:       ad.exchange,
+          price:          ad.price,
+          minAmount:      ad.minAmount,
+          maxAmount:      ad.maxAmount,
+          paymentMethods: ad.paymentMethods.slice(0, 3),
+          merchant:       ad.merchant,
+        })),
+      },
+      sell: {
+        bestRate:    sellResult.summary.highestRate, // highest = best buyer price
+        worstRate:   sellResult.summary.lowestRate,
+        averageRate: sellResult.summary.averageRate,
+        topAds: sellResult.ads.slice(0, 3).map(ad => ({
+          exchange:       ad.exchange,
+          price:          ad.price,
+          minAmount:      ad.minAmount,
+          maxAmount:      ad.maxAmount,
+          paymentMethods: ad.paymentMethods.slice(0, 3),
+          merchant:       ad.merchant,
+        })),
+      },
+      spread: (buyResult.summary.lowestRate && sellResult.summary.highestRate)
+        ? parseFloat((buyResult.summary.lowestRate - sellResult.summary.highestRate).toFixed(4))
+        : null,
+      fetchedAt: new Date().toISOString(),
+      errors: { ...buyResult.errors, ...sellResult.errors } || undefined,
+    };
+  } catch (err) {
+    return {
+      error:       err.message,
+      userMessage: '⏳ P2P rate data temporarily unavailable. Try again shortly.',
+    };
+  }
+}
+ 
+// ── get_p2p_ads ────────────────────────────────────────────────────────────
+// Returns full merchant ad list with all details.
+// Used when agent needs to show merchant options or specific payment methods.
+async function getP2PAds({ asset, fiat, tradeType, exchange = 'all', limit = 10 }) {
+  try {
+    const result = await fetchP2PAds({
+      exchange: exchange || 'all',
+      asset,
+      fiat,
+      tradeType: tradeType.toUpperCase(),
+      limit: Math.min(limit || 10, 15),
+    });
+ 
+    return {
+      asset:     result.asset,
+      fiat:      result.fiat,
+      tradeType: result.tradeType,
+      totalAds:  result.totalAds,
+      summary:   result.summary,
+      // Trim to essentials so agent context stays lean
+      ads: result.ads.slice(0, 8).map(ad => ({
+        exchange:       ad.exchange,
+        price:          ad.price,
+        minAmount:      ad.minAmount,
+        maxAmount:      ad.maxAmount,
+        available:      ad.available,
+        paymentMethods: ad.paymentMethods,
+        merchant:       ad.merchant,
+      })),
+      errors:  result.errors,
+      warning: result.stale ? '⚠️ Showing cached data — live fetch temporarily failed.' : undefined,
+    };
+  } catch (err) {
+    return {
+      error:       err.message,
+      userMessage: '⏳ P2P ad data temporarily unavailable. Try again shortly.',
+    };
+  }
+}
+ 
 
 // ── Main dispatcher ────────────────────────────────────────────────────────
 async function executeTool(name, input) {
@@ -1101,6 +1321,8 @@ async function executeTool(name, input) {
     compare_deposit_fees:         compareDepositFees,
     find_p2p_best_rate:           findP2PBestRate,
     get_exchange_info:            getExchangeInfo,
+    get_p2p_rates:               getP2PRates,
+    get_p2p_ads:                 getP2PAds,
   };
 
   const fn = map[name];

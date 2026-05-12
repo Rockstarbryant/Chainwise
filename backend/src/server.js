@@ -13,6 +13,7 @@ const giveawayRoutes     = require('./routes/giveaways');
 const adminRoute         = require('./routes/admin');
 const usersRoute  = require('./routes/users');
 const agentRoute  = require('./routes/agent');
+const p2pRoutes = require('./routes/p2p');
 const feesRoute   = require('./routes/fees');
 const syncRoute   = require('./routes/sync');
 
@@ -55,6 +56,7 @@ app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
 app.use('/api/giveaways',     giveawayRoutes);
 app.use('/api/sync',          syncRoute);
+app.use('/api/p2p',           p2pRoutes);
 app.use('/api/admin',         adminRoute);
 app.use('/api/admin/users',   usersRoute);
 
@@ -104,8 +106,10 @@ const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
       logger.info('[startup] Redis is ready — starting BullMQ worker and cron');
       const { startWorker } = require('./jobs/syncQueue');
       const { startCron }   = require('./jobs/cronJob');
+       const { startP2PCron } = require('./jobs/p2pCron');
       startWorker();
       startCron();
+      startP2PCron();
       logger.info('✓ BullMQ worker and hourly cron started');
       return;
 
@@ -144,6 +148,8 @@ const start = async () => {
 const shutdown = async (signal) => {
   try { const { stopCron }             = require('./jobs/cronJob');        stopCron();             } catch (_) {}
   try { const { stopGiveawayScanCron } = require('./jobs/giveawayScan');   stopGiveawayScanCron(); } catch (_) {}
+  try { const { stopWorker }           = require('./jobs/syncQueue');       stopWorker();           } catch (_) {}
+   try { const { stopP2PCron }         = require('./jobs/p2pCron');        stopP2PCron();         } catch (_) {}
 
   logger.info(`${signal} received — shutting down gracefully...`);
 

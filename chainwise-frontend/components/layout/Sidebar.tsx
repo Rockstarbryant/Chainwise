@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, BarChart3, Zap, Search,
-  LogOut, LogIn, ShieldCheck, Gift,
+  LogOut, LogIn, ShieldCheck, ArrowLeftRight, Gift,
   X, RefreshCw, UsersRound,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,6 +16,7 @@ const NAV_TOP = [
   { href: '/chat',       icon: MessageSquare, label: 'Agent Chat',       adminOnly: false },
   { href: '/coins',      icon: Search,        label: 'Coin Explorer',    adminOnly: false },
   { href: '/fees',       icon: BarChart3,     label: 'Fee Tables',       adminOnly: false },
+  { href: '/p2p',        icon: ArrowLeftRight, label: 'P2P Market',      adminOnly: false },
   { href: '/giveaways',  icon: Gift,          label: 'Giveaways',        adminOnly: false },
   { href: '/admin',      icon: ShieldCheck,   label: 'Admin',            adminOnly: true  },
   { href: '/admin/sync', icon: RefreshCw,     label: 'Auto-Sync',        adminOnly: true  },
