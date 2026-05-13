@@ -17,6 +17,7 @@ const EXCHANGES = [
   { key: 'bitget',  label: 'Bitget',   needsPassphrase: true,  docs: 'https://www.bitget.com/account/newapi' },
   { key: 'gateio',  label: 'Gate.io',  needsPassphrase: false, docs: 'https://www.gate.io/myaccount/apiv4keys' },
   { key: 'mexc',    label: 'MEXC',     needsPassphrase: false, docs: 'https://www.mexc.com/user/openapi' },
+  { key: 'bingx',   label: 'BingX',    needsPassphrase: false, docs: 'https://www.bingx.com/account/api' },
   { key: 'bitmart', label: 'BitMart',  needsPassphrase: true,  docs: 'https://www.bitmart.com/account/api' },
   { key: 'huobi',   label: 'Huobi/HTX',needsPassphrase: false, docs: 'https://www.htx.com/account/api' },
   { key: 'coinex',  label: 'CoinEx',   needsPassphrase: false, docs: 'https://www.coinex.com/account/api' },

@@ -15,7 +15,9 @@ const CCXT_MAP = {
   coinex:  'coinex',
   okx:     'okx',
   mexc:    'mexc',
+  bingx:   'bingx',
   bitmart: 'bitmart',
+  huobi:   'htx',
   htx:     'htx', // Huobi rebranded to HTX but CCXT still uses 'huobi' as the key
 };
 
@@ -81,21 +83,36 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
     enableRateLimit: true,
     options:         { defaultType: 'spot' },
     },
-     bitmart: {
-    apiKey,
-    secret:          apiSecret,
-    uid:             passphrase,   // BitMart uses `uid` not `password` in CCXT
-    timeout:         30000,
-    enableRateLimit: true,
-    options:         { defaultType: 'spot' },
-  },
+    bingx: {
+      apiKey,
+      secret:          apiSecret,
+      timeout:         30000,
+      enableRateLimit: true,
+      options: {
+        defaultType: 'spot',        // Very important
+      },
+    },
+    bitmart: {
+      apiKey,
+      secret:          apiSecret,
+      uid:             passphrase,   // ← Make sure this is correctly passed (BitMart Memo/UID)
+      timeout:         30000,
+      enableRateLimit: true,
+      options: {
+        defaultType: 'spot',        // Very important
+      },
+    },
    htx: {
-    apiKey,
-    secret:          apiSecret,
-    timeout:         30000,
-    enableRateLimit: true,
-    options:         { defaultType: 'spot' },
+  apiKey,
+  secret:          apiSecret,
+  timeout:         30000,
+  enableRateLimit: true,
+  options: {
+    defaultType: 'spot',           // Force spot
+    defaultSubType: 'spot',        // Extra safety
+    fetchMarkets: ['spot'],        // Optional but helpful
   },
+},
     coinex: {
       apiKey,
       secret:          apiSecret,
@@ -132,6 +149,25 @@ async function getDecryptedKeys(exchangeKey, adminUserId) {
 
 // ── Test API keys ─────────────────────────────────────────────────────────
 async function testApiKeys(exchangeKey, apiKey, apiSecret, passphrase = '') {
+  // BitMart: CCXT fetchBalance is broken, test with direct API call instead
+  if (exchangeKey === 'bitmart') {
+    try {
+      const result = await bitmartRequest(
+        '/account/v1/currencies',  // ← change this line
+        apiKey, apiSecret, passphrase
+      );
+      if (result?.data) return { valid: true };
+      return { valid: false, error: 'BitMart API returned unexpected response' };
+    } catch (err) {
+      logger.warn(`[sync] Key test failed for bitmart: ${err.message} | code: ${err.code} | type: ${err.constructor?.name}`);
+      return {
+        valid: false,
+        error: err.message || err.code || 'Unknown connection error',
+      };
+    }
+  }
+
+  // All other exchanges use CCXT as normal
   try {
     const exchange = buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase);
     await exchange.fetchBalance();
@@ -318,11 +354,88 @@ async function fetchGateioFeeData(apiKey, apiSecret) {
   return coinMap;
 }
 
+// ── BitMart HMAC signing ──────────────────────────────────────────────────
+function bitmartSign(timestamp, apiKey, apiSecret, memo) {
+  const message = `${timestamp}#${memo}#`;
+  return crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
+}
+
+const axios = require('axios');
+
+async function bitmartRequest(path, apiKey, apiSecret, memo) {
+  const timestamp = Date.now().toString();
+  const message   = `${timestamp}#${memo}#`;
+  const signature = crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
+
+  const response = await axios.get(`https://api-cloud.bitmart.com${path}`, {
+    headers: {
+      'Content-Type':   'application/json',
+      'X-BM-KEY':       apiKey,
+      'X-BM-SIGN':      signature,
+      'X-BM-TIMESTAMP': timestamp,
+    },
+    timeout: 30000,
+  });
+
+  return response.data;
+}
+
+// ── BitMart-specific fee fetcher ──────────────────────────────────────────
+async function fetchBitmartFeeData(apiKey, apiSecret, memo) {
+  logger.info('[sync] Fetching currencies from bitmart (direct API)...');
+
+  const response = await bitmartRequest(
+    '/account/v1/currencies',
+    apiKey, apiSecret, memo
+  );
+
+  // Response shape: { data: { currencies: [...] } }
+  const currencies = response?.data?.currencies ?? [];
+  logger.info(`[sync] bitmart: ${currencies.length} currencies returned`);
+
+  // BitMart uses {SYMBOL}-{NETWORK} as the currency field
+  // Group by base symbol, each entry is one network
+  const symbolMap = {};
+
+  for (const item of currencies) {
+    if (!item.withdraw_enabled && !item.deposit_enabled) continue;
+
+    // currency field is like "USDT-ERC20" or "BTC-Bitcoin"
+    const parts   = item.currency.split('-');
+    const symbol  = parts[0].toUpperCase();
+    const chainId = parts.slice(1).join('-').toLowerCase();
+
+    const network = {
+      chain:          item.currency,       // e.g. "USDT-ERC20"
+      chainId,                             // e.g. "erc20"
+      withdrawFee:    parseFloat(item.withdraw_minfee)  || 0,
+      withdrawFeeUSD: null,
+      minWithdraw:    parseFloat(item.withdraw_minsize) || 0,
+      minDeposit:     parseFloat(item.recharge_minsize) || 0,
+      depositFee:     0,
+      arrivalMins:    estimateArrivalMins(chainId),
+      isActive:       item.withdraw_enabled || item.deposit_enabled,
+      dataSource:     'api',
+      lastSynced:     new Date(),
+    };
+
+    if (!symbolMap[symbol]) symbolMap[symbol] = [];
+    symbolMap[symbol].push(network);
+  }
+
+  logger.info(`[sync] bitmart: parsed ${Object.keys(symbolMap).length} coins`);
+  return symbolMap;
+}
+
 // ── Standard fee fetcher (all exchanges except Gate.io) ───────────────────
 async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase = '') {
   // Gate.io requires a direct API approach — CCXT never populates its fee fields
   if (exchangeKey === 'gateio') {
     return fetchGateioFeeData(apiKey, apiSecret);
+  }
+  // BitMart also has a non-standard API for fee data
+  if (exchangeKey === 'bitmart') {
+    return fetchBitmartFeeData(apiKey, apiSecret, passphrase);
   }
 
   logger.info(`[sync] Fetching currencies from ${exchangeKey}...`);

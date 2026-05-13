@@ -1,4 +1,4 @@
-// app/layout.tsx  — server component (metadata export is fine here)
+// app/layout.tsx — server component
 import type { Metadata } from 'next';
 import './globals.css';
 import ClientLayout from './ClientLayout';
@@ -14,12 +14,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       {/*
-        h-dvh  → uses the *dynamic* viewport height unit so the layout
-        correctly tracks the mobile browser chrome (URL bar) shrinking/
-        expanding, instead of the static 100vh which causes a layout shift
-        that clips the sticky header on first paint.
+        IMPORTANT: overflow-hidden + h-dvh is required for the app shell
+        (chat, fees, p2p etc) so the sidebar and chat input stay pinned.
+        But it breaks scrolling on the marketing homepage which renders
+        outside the shell.
+
+        Fix: move overflow-hidden onto the shell wrapper inside ClientLayout,
+        NOT on <body>. The body itself should scroll freely so the homepage
+        (and any other full-page routes) work normally.
       */}
-      <body className="flex h-dvh overflow-hidden bg-brand-bg">
+      <body className="flex bg-zinc-950 antialiased">
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

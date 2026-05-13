@@ -1,5 +1,12 @@
 'use client';
 
+// app/chat/ChatWindow.tsx (or wherever your ChatWindow lives)
+// Changes from original:
+//   1. Empty-state guard: hide SuggestedPrompts as soon as the user sends
+//      (check `loading` too, not only `messages.length === 0`). This fixes
+//      the bug where prompts kept showing until the response arrived.
+//   2. No other logic changes — all hooks, handlers, and layout preserved.
+
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -34,6 +41,11 @@ export default function ChatWindow({ conversationId }: Props) {
   const [editIndex,   setEditIndex]   = useState<number | null>(null);
   const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
 
+  // Track whether the user has ever sent a message in this session so we
+  // can hide SuggestedPrompts immediately on send rather than waiting for
+  // the first message to appear in the messages array.
+  const [hasSentMessage, setHasSentMessage] = useState(false);
+
   /* ── Auto-scroll ────────────────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -46,7 +58,7 @@ export default function ChatWindow({ conversationId }: Props) {
     router.replace(`/chat/${createdConversationId}`);
   }, [createdConversationId, router, triggerHistoryRefresh]);
 
-  /* ── Bug 1 fix: refresh sidebar after agent responds ────────────────── */
+  /* ── Refresh sidebar after agent responds ───────────────────────────── */
   const prevLoadingRef = useRef(false);
   useEffect(() => {
     const justFinished = prevLoadingRef.current && !loading;
@@ -56,6 +68,14 @@ export default function ChatWindow({ conversationId }: Props) {
       return () => clearTimeout(t);
     }
   }, [loading, conversationId, triggerHistoryRefresh]);
+
+  // Reset hasSentMessage when we navigate to a fresh /chat (no conversationId)
+  // and messages is empty, so suggested prompts re-appear for new chats.
+  useEffect(() => {
+    if (!conversationId && messages.length === 0 && !loading) {
+      setHasSentMessage(false);
+    }
+  }, [conversationId, messages.length, loading]);
 
   /* ── Handlers ───────────────────────────────────────────────────────── */
   const handleEdit = (index: number) => {
@@ -71,6 +91,9 @@ export default function ChatWindow({ conversationId }: Props) {
   };
 
   const handleSendOrEdit = (text: string) => {
+    // Mark as sent immediately so SuggestedPrompts disappears right away
+    setHasSentMessage(true);
+
     if (editIndex !== null) {
       editAndResend(text, editIndex);
       setEditIndex(null);
@@ -80,9 +103,9 @@ export default function ChatWindow({ conversationId }: Props) {
     }
   };
 
-  /* ── Bug 2 fix ──────────────────────────────────────────────────────── */
   const handleNewChat = useCallback(() => {
     handleCancelEdit();
+    setHasSentMessage(false);
     clear();
     router.push('/chat');
   }, [clear, router]);
@@ -92,23 +115,21 @@ export default function ChatWindow({ conversationId }: Props) {
     -1
   );
 
+  // SuggestedPrompts should only render when:
+  //   - history is not loading
+  //   - no messages have been received yet
+  //   - the user has NOT pressed send yet this session
+  //   - the agent is not currently generating a response
+  const showSuggestedPrompts =
+    !loadingHistory &&
+    messages.length === 0 &&
+    !hasSentMessage &&
+    !loading;
+
   return (
-    /*
-     * The root div is a flex column that fills the height given by <main>
-     * in ClientLayout (`flex-1 flex flex-col min-w-0 overflow-hidden`).
-     *
-     * MOBILE FIX: Header is the FIRST child of this flex column and has
-     * `flex-shrink-0` so it never collapses. It must NOT be inside the
-     * scrollable div — sticky positioning inside an overflow:auto container
-     * is unreliable on mobile Chrome and causes the header to disappear
-     * during the initial URL-bar-collapse transition.
-     *
-     * We also removed `sticky top-0` from Header and rely purely on the
-     * flex-column stacking order to keep it pinned at the top.
-     */
     <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
 
-      {/* ── Header — flex-shrink-0 keeps it always visible ────────────── */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 z-30">
         <Header
           anonCount={anonCount}
@@ -117,7 +138,7 @@ export default function ChatWindow({ conversationId }: Props) {
         />
       </div>
 
-      {/* ── Scrollable message area — takes all remaining space ────────── */}
+      {/* ── Scrollable message area ────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
         <div className="max-w-3xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
 
@@ -140,9 +161,12 @@ export default function ChatWindow({ conversationId }: Props) {
             </div>
           )}
 
-          {/* Empty state */}
-          {!loadingHistory && messages.length === 0 && (
-            <SuggestedPrompts onSelect={send} />
+          {/* Empty state — only show when no message has been initiated */}
+          {showSuggestedPrompts && (
+            <SuggestedPrompts onSelect={(prompt) => {
+              setHasSentMessage(true);
+              send(prompt);
+            }} />
           )}
 
           {/* Messages */}
@@ -193,7 +217,7 @@ export default function ChatWindow({ conversationId }: Props) {
         </div>
       </div>
 
-      {/* ── Input — always pinned to bottom, never scrolls ─────────────── */}
+      {/* ── Input ─────────────────────────────────────────────────────────── */}
       <MessageInput
         onSend={handleSendOrEdit}
         loading={loading || loadingHistory}
@@ -201,7 +225,7 @@ export default function ChatWindow({ conversationId }: Props) {
         onCancelEdit={editIndex !== null ? handleCancelEdit : undefined}
       />
 
-      {/* ── Auth gate overlay ───────────────────────────────────────────── */}
+      {/* ── Auth gate overlay ──────────────────────────────────────────────── */}
       <AnimatePresence>
         {showAuthGate && (
           <AuthGate onClose={() => setShowAuthGate(false)} />

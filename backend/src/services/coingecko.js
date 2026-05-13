@@ -17,6 +17,10 @@ const EXCHANGE_CG_IDS = {
   kucoin:  'kucoin',
   gateio:  'gate',
   okx:     'okx',
+  htx:     'htx',
+  bingx:   'bingx',
+  bitmart: 'bitmart',
+  mexc:    'mexc',
 };
 
 // Get all coins/tickers listed on a specific exchange from CoinGecko

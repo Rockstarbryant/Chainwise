@@ -80,7 +80,7 @@ const EXCHANGE_LIMITS = {
 const ALL_EXCHANGES = [
   'binance', 'okx', 'kucoin',    // tier 1 — highest reliability
   'bybit',   'bitget',           // tier 2 — recently fixed
-  'htx', 'mexc',                        // tier 3 — low liquidity but stable
+  'htx', 'mexc', 'bingx', 'coinex',                       // tier 3 — low liquidity but stable
   'noones',  'remitano',         // tier 4 — Africa-focused
 ];
 
