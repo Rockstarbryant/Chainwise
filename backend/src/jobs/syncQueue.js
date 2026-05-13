@@ -2,6 +2,7 @@ const { Queue, Worker, QueueEvents } = require('bullmq');
 const { createBullConnection } = require('../config/redis');
 const { syncExchange }         = require('../services/exchangeSync');
 const logger                   = require('../../utils/logger');
+const { withLock }             = require('../../utils/redisLock');
 
 const QUEUE_NAME = 'exchange-sync';
 
@@ -13,7 +14,7 @@ let syncEvents  = null;
 const getQueue = () => {
   if (!syncQueue) {
     syncQueue = new Queue(QUEUE_NAME, {
-      connection: createBullConnection(), // own connection
+      connection: createBullConnection(),
       defaultJobOptions: {
         attempts:  3,
         backoff:   { type: 'exponential', delay: 5000 },
@@ -26,31 +27,33 @@ const getQueue = () => {
   return syncQueue;
 };
 
-// ── Worker — for processing jobs ──────────────────────────────────────────
+// ── Worker with Global Lock ───────────────────────────────────────────────
 const startWorker = () => {
   if (syncWorker) return;
 
   syncWorker = new Worker(
     QUEUE_NAME,
     async (job) => {
-      const { exchangeKey, adminUserId } = job.data;
-      logger.info(`[worker] ▶ Processing: ${exchangeKey} | job ${job.id}`);
+      return await withLock('exchange-sync', async () => {
+        const { exchangeKey, adminUserId } = job.data;
+        logger.info(`[worker] ▶ Processing: ${exchangeKey} | job ${job.id}`);
 
-      try {
-        const result = await syncExchange(exchangeKey, adminUserId);
-        logger.info(`[worker] ✓ Done: ${exchangeKey} — ${result.synced} coins synced`);
-        return result;
-      } catch (err) {
-        logger.error(`[worker] ✕ Failed: ${exchangeKey} — ${err.message}`);
-        throw err; // let BullMQ retry
-      }
+        try {
+          const result = await syncExchange(exchangeKey, adminUserId);
+          logger.info(`[worker] ✓ Done: ${exchangeKey} — ${result.synced} coins synced`);
+          return result;
+        } catch (err) {
+          logger.error(`[worker] ✕ Failed: ${exchangeKey} — ${err.message}`);
+          throw err; // let BullMQ retry
+        }
+      });
     },
     {
-      connection:  createBullConnection(), // OWN connection — critical
-      concurrency: 2,
+      connection:  createBullConnection(),
+      concurrency: 1,                    // Important: Reduced to 1
       limiter: {
         max:      5,
-        duration: 60000, // max 5 jobs per minute
+        duration: 60000,
       },
     }
   );
@@ -72,9 +75,9 @@ const startWorker = () => {
     logger.error(`[worker] Worker error: ${err.message}`);
   });
 
-  // ── Queue Events — for monitoring ──────────────────────────────────────
+  // ── Queue Events ──────────────────────────────────────────────────────
   syncEvents = new QueueEvents(QUEUE_NAME, {
-    connection: createBullConnection(), // own connection
+    connection: createBullConnection(),
   });
 
   syncEvents.on('completed', ({ jobId }) => {
@@ -85,30 +88,24 @@ const startWorker = () => {
     logger.error(`[events] Job ${jobId} failed: ${failedReason}`);
   });
 
-  logger.info('[worker] ✓ Exchange sync worker started and listening');
+  logger.info('[worker] ✓ Exchange sync worker started with global lock');
 };
 
 // ── Add a single sync job ─────────────────────────────────────────────────
 const queueSync = async (exchangeKey, adminUserId, priority = 3) => {
   const queue = getQueue();
 
-  // Dedup key — used only to check for an already-running/waiting job.
-  // We do NOT pass this as jobId to BullMQ so completed jobs never block
-  // future runs with the same exchange+user combination.
   const dedupKey = `${exchangeKey}-${adminUserId}`;
-
-  // Check if a job with this exchange+user is already active or waiting
   const existing = await queue.getJob(dedupKey);
+
   if (existing) {
     const state = await existing.getState();
     if (state === 'active' || state === 'waiting') {
-      logger.info(`[queue] Skipping ${exchangeKey} — job already ${state} (${existing.id})`);
+      logger.info(`[queue] Skipping ${exchangeKey} — job already ${state}`);
       return existing.id;
     }
-    // Job exists but is completed/failed/delayed — safe to queue a fresh one
   }
 
-  // Use a unique jobId per run so BullMQ never silently deduplicates
   const jobId = `${dedupKey}-${Date.now()}`;
 
   const job = await queue.add(
@@ -158,9 +155,7 @@ const queueAllExchanges = async (adminUserId) => {
 const getQueueStats = async () => {
   try {
     const queue  = getQueue();
-    const counts = await queue.getJobCounts(
-      'wait', 'active', 'completed', 'failed', 'delayed'
-    );
+    const counts = await queue.getJobCounts('wait', 'active', 'completed', 'failed', 'delayed');
     return counts;
   } catch (err) {
     logger.warn(`[queue] Could not get stats: ${err.message}`);
@@ -172,7 +167,7 @@ const getQueueStats = async () => {
 const cleanQueue = async () => {
   const queue = getQueue();
   await queue.clean(24 * 60 * 60 * 1000, 10, 'completed');
-  await queue.clean(7  * 24 * 60 * 60 * 1000, 10, 'failed');
+  await queue.clean(7 * 24 * 60 * 60 * 1000, 10, 'failed');
   logger.info('[queue] Old jobs cleaned');
 };
 

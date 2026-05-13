@@ -8,39 +8,34 @@ const requestLogger   = require('./middlewares/requestLogger');
 const { general }     = require('./middlewares/rateLimiter');
 const { notFound, globalError } = require('./middlewares/errorHandler');
 const logger = require('../utils/logger');
+
 const conversationsRoute = require('./routes/conversations');
 const giveawayRoutes     = require('./routes/giveaways');
 const adminRoute         = require('./routes/admin');
-const usersRoute  = require('./routes/users');
-const agentRoute  = require('./routes/agent');
-const p2pRoutes = require('./routes/p2p');
-const feesRoute   = require('./routes/fees');
-const syncRoute   = require('./routes/sync');
+const usersRoute         = require('./routes/users');
+const agentRoute         = require('./routes/agent');
+const p2pRoutes          = require('./routes/p2p');
+const feesRoute          = require('./routes/fees');
+const syncRoute          = require('./routes/sync');
 
 const app = express();
 
-// ── Security ───────────────────────────────────────────────────────────────
+// ── Security & Performance ───────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: process.env.NODE_ENV === 'production',
 }));
 app.use(corsMiddleware);
 app.options('*', corsMiddleware);
-
-// ── Performance ────────────────────────────────────────────────────────────
 app.use(compression());
 
-// ── Body parsing ───────────────────────────────────────────────────────────
+// ── Body parsing & Logging ───────────────────────────────────────────────
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
-
-// ── Request logging ────────────────────────────────────────────────────────
 app.use(requestLogger);
-
-// ── Global rate limit ──────────────────────────────────────────────────────
 app.use(general);
 
-// ── Health check ───────────────────────────────────────────────────────────
+// ── Routes ───────────────────────────────────────────────────────────────
 app.get('/health', (_, res) => {
   res.json({
     status: 'ok',
@@ -50,7 +45,6 @@ app.get('/health', (_, res) => {
   });
 });
 
-// ── API routes ─────────────────────────────────────────────────────────────
 app.use('/api/agent',         agentRoute);
 app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
@@ -60,123 +54,96 @@ app.use('/api/p2p',           p2pRoutes);
 app.use('/api/admin',         adminRoute);
 app.use('/api/admin/users',   usersRoute);
 
-// ── 404 + Global error handlers ───────────────────────────────────────────
+// ── Error handlers ───────────────────────────────────────────────────────
 app.use(notFound);
 app.use(globalError);
 
-// ── Redis readiness check ──────────────────────────────────────────────────
+// ── Redis + Background Services ──────────────────────────────────────────
 const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
   const { Redis } = require('ioredis');
   const REDIS_URL = process.env.REDIS_URL || null;
 
-  const isTlsUrl = (url) =>
-    url.startsWith('rediss://') ||
-    url.includes('redislabs.com') ||
-    url.includes('upstash.io') ||
-    url.includes('redis.cloud');
-
-  const makeProbe = () => {
-    if (REDIS_URL) {
-      const tlsOptions = isTlsUrl(REDIS_URL) ? { tls: { rejectUnauthorized: false } } : {};
-      return new Redis(REDIS_URL, {
-        maxRetriesPerRequest: 1,
-        enableReadyCheck:     false,
-        lazyConnect:          true,
-        ...tlsOptions,
-      });
-    }
-    return new Redis({
-      host:                 process.env.REDIS_HOST || '127.0.0.1',
-      port:                 parseInt(process.env.REDIS_PORT || '6379'),
-      password:             process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: 1,
-      enableReadyCheck:     false,
-      lazyConnect:          true,
-    });
-  };
+  const isTlsUrl = (url) => url?.startsWith('rediss://') || url?.includes('redislabs.com') || url?.includes('upstash.io');
 
   for (let i = 1; i <= retries; i++) {
     let probe = null;
     try {
-      probe = makeProbe();
+      probe = isTlsUrl(REDIS_URL) 
+        ? new Redis(REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true, tls: { rejectUnauthorized: false } })
+        : new Redis({ host: process.env.REDIS_HOST || '127.0.0.1', port: parseInt(process.env.REDIS_PORT || '6379'), password: process.env.REDIS_PASSWORD, maxRetriesPerRequest: 1, lazyConnect: true });
+
       await probe.connect();
       await probe.ping();
       await probe.quit();
 
-      logger.info('[startup] Redis is ready — starting BullMQ worker and cron');
+      logger.info('[startup] Redis ready — starting services');
       const { startWorker } = require('./jobs/syncQueue');
       const { startCron }   = require('./jobs/cronJob');
-       const { startP2PCron } = require('./jobs/p2pCron');
+      const { startP2PCron } = require('./jobs/p2pCron');
+
       startWorker();
       startCron();
       startP2PCron();
-      logger.info('✓ BullMQ worker and hourly cron started');
-      return;
 
+      return;
     } catch (err) {
-      try { if (probe) await probe.quit(); } catch (_) {}
+      if (probe) try { await probe.quit(); } catch (_) {}
       logger.warn(`[startup] Redis not ready (attempt ${i}/${retries}): ${err.message}`);
       if (i < retries) await new Promise(r => setTimeout(r, delayMs));
     }
   }
-
-  logger.warn('[startup] Redis unavailable after all retries — worker/cron skipped. Agent + fees still operational.');
+  logger.warn('[startup] Redis unavailable — background services skipped');
 };
 
-// ── Start server ───────────────────────────────────────────────────────────
+// ── Start Server ─────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '5000', 10);
 let server;
 
 const start = async () => {
   await connectDB();
-
   server = app.listen(PORT, () => {
-    logger.info(`⚡ ChainWise API  →  http://localhost:${PORT}`);
-    logger.info(`   Health check   →  http://localhost:${PORT}/health`);
-    logger.info(`   Environment    →  ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`⚡ ChainWise API running on http://localhost:${PORT}`);
   });
 
-  // Non-blocking — Redis/BullMQ startup, does not block HTTP
   waitForRedisAndStartWorker();
-
-  // Giveaway scan cron — independent of Redis/BullMQ, only needs MongoDB
   const { startGiveawayScanCron } = require('./jobs/giveawayScan');
   startGiveawayScanCron();
 };
 
-// ── Graceful shutdown ──────────────────────────────────────────────────────
+// ── Graceful Shutdown ────────────────────────────────────────────────────
 const shutdown = async (signal) => {
-  try { const { stopCron }             = require('./jobs/cronJob');        stopCron();             } catch (_) {}
-  try { const { stopGiveawayScanCron } = require('./jobs/giveawayScan');   stopGiveawayScanCron(); } catch (_) {}
-  try { const { stopWorker }           = require('./jobs/syncQueue');       stopWorker();           } catch (_) {}
-   try { const { stopP2PCron }         = require('./jobs/p2pCron');        stopP2PCron();         } catch (_) {}
-
   logger.info(`${signal} received — shutting down gracefully...`);
+
+  try { const { stopCron } = require('./jobs/cronJob'); stopCron(); } catch (_) {}
+  try { const { stopGiveawayScanCron } = require('./jobs/giveawayScan'); stopGiveawayScanCron(); } catch (_) {}
+  try { 
+    const syncMod = require('./jobs/syncQueue'); 
+    if (typeof syncMod.stopWorker === 'function') syncMod.stopWorker();
+  } catch (_) {}
+  try { 
+    const p2pMod = require('./jobs/p2pCron'); 
+    if (typeof p2pMod.stopP2PCron === 'function') p2pMod.stopP2PCron();
+  } catch (_) {}
 
   server.close(async () => {
     logger.info('HTTP server closed');
     try {
       const mongoose = require('mongoose');
       await mongoose.connection.close();
-      logger.info('MongoDB connection closed');
+      logger.info('MongoDB closed');
       process.exit(0);
     } catch (err) {
-      logger.error('Error during shutdown:', err);
+      logger.error('Error closing MongoDB:', err);
       process.exit(1);
     }
   });
 
-  setTimeout(() => {
-    logger.error('Forced exit after 10s timeout');
-    process.exit(1);
-  }, 10_000).unref();
+  setTimeout(() => process.exit(1), 10_000).unref();
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection:', { reason, promise });
-});
+process.on('unhandledRejection', (reason) => logger.error('Unhandled Rejection:', reason));
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught Exception:', err);
   shutdown('uncaughtException');
