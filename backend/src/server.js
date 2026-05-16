@@ -12,6 +12,7 @@ const logger = require('../utils/logger');
 const conversationsRoute = require('./routes/conversations');
 const giveawayRoutes     = require('./routes/giveaways');
 const adminRoute         = require('./routes/admin');
+const telegramRoute      = require('./routes/telegram');
 const usersRoute         = require('./routes/users');
 const agentRoute         = require('./routes/agent');
 const p2pRoutes          = require('./routes/p2p');
@@ -49,6 +50,7 @@ app.use('/api/agent',         agentRoute);
 app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
 app.use('/api/giveaways',     giveawayRoutes);
+app.use('/api/telegram',      telegramRoute);
 app.use('/api/sync',          syncRoute);
 app.use('/api/p2p',           p2pRoutes);
 app.use('/api/admin',         adminRoute);
@@ -114,6 +116,16 @@ const start = async () => {
   waitForRedisAndStartWorker();
   const { startGiveawayScanCron } = require('./jobs/giveawayScan');
   startGiveawayScanCron();
+
+  // Start Telegram Bot if token is provided
+// Start Telegram Bot if token is provided
+try {
+  const telegramBot = require('./telegram/bot');
+  telegramBot.start();
+} catch (err) {
+  logger.error('❌ Failed to initialize Telegram bot:', err.message);
+  logger.error('   Stack:', err.stack);   // ← Added for better debugging
+}
 };
 
 // ── Graceful Shutdown ────────────────────────────────────────────────────

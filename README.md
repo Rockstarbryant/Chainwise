@@ -1040,3 +1040,41 @@ BullMQ jobs live in Redis, not MongoDB. They're ephemeral — created when sync 
 6. **Agent loop max 5 iterations.** Prevents infinite tool-calling. Most queries complete in 1–3 iterations.
 
 7. **Exchange-specific CCXT options are required.** Bybit: `accountType: 'UNIFIED'`. KuCoin + Bitget: `password: passphrase`. CoinEx: `api: 'v2'`. Missing these causes auth failures or wrong data.
+
+## Recent Updates — Global Job Locking System (May 2026)
+
+### Overview
+Implemented a **distributed Redis-based mutex** to ensure that background jobs run **one at a time** instead of overlapping.
+
+This prevents:
+- Rate limit bans from overlapping P2P requests
+- Duplicate work
+- High server load
+- Redis connection pressure
+
+### New File
+- `backend/src/utils/redisLock.js` — Global lock utility (`withLock`, `acquireLock`, `releaseLock`)
+
+### Updated Files
+- `backend/src/jobs/p2pCron.js`
+- `backend/src/jobs/cronJob.js` 
+- `backend/src/jobs/giveawayScan.js`
+- `backend/src/jobs/syncQueue.js` (BullMQ Worker)
+- `backend/src/server.js` (shutdown handling)
+
+### How It Works
+
+All major background jobs are now wrapped with:
+
+```js
+await withLock('job-name', async () => {
+  // job logic here
+});
+
+Cron Triggers 
+    ↓
+withLock() → Redis NX + EX lock
+    ↓
+Job Execution (P2P / Sync / Giveaway)
+    ↓
+Lock Release

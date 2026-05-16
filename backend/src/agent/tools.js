@@ -451,7 +451,7 @@ Use this when plan_cross_exchange_transfer detects a listing mismatch.`,
       parameters: {
         type: 'object',
         properties: {
-          exchange: { type: 'string', description: 'Exchange slug: binance, bybit, coinex, bitget, kucoin, gateio' },
+          exchange: { type: 'string', description: 'Exchange slug: binance, bybit, coinex, bitget, kucoin, gateio, okx, bingX, htx, mexc, cryptocom' },
         },
         required: ['exchange'],
       },

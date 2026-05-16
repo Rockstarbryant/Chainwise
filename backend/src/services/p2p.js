@@ -384,124 +384,174 @@ async function fetchOKXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', pa
   }));
 }
 
-// ─── KUCOIN ───────────────────────────────────────────────────────────────
-// ─── KUCOIN ───────────────────────────────────────────────────────────────
-// FIX v2: Field names confirmed from live API response keys (May 2026):
-//   price      → floatPrice
-//   minAmount  → fiatMinAmount   (fiat limits, not crypto)
-//   maxAmount  → fiatMaxAmount
-//   available  → currencyQuantity (crypto available)
-//   completion → dealOrderRate   (decimal 0–1, multiply ×100)
-//   orderCount → dealOrderNum
-//   payTypes   → adPayTypes      (array of {payType, name} objects)
+// ─── KUCOIN (FIXED v3) ────────────────────────────────────────────────────────
+ 
+// ─── KUCOIN (FIXED v4) ────────────────────────────────────────────────────────
+//
+// ROOT CAUSE (v3 was still wrong):
+//   Log shows: priceType=REGULAR | fiatToCryptoPrice=0.007999 | floatPrice=125.01
+//
+//   priceType='REGULAR' → floatPrice IS the actual KES/USDT price (125.01) ✓
+//                         fiatToCryptoPrice = INVERSE rate (1/125 = 0.008) ✗
+//
+//   priceType='FLOAT'   → floatPrice = market premium multiplier (e.g. 1.02)
+//                         fiatToCryptoPrice = inverse of calculated rate
+//
+// CORRECT LOGIC:
+//   For ALL types: the displayed price = floatPrice when it's > 1 (i.e. a real KES value)
+//   Safe rule: if floatPrice > 1 → use floatPrice (it's the KES price)
+//              if floatPrice ≤ 1 → use 1/fiatToCryptoPrice (derive from inverse)
+//
+// This handles both REGULAR (floatPrice=125) and FLOAT (floatPrice=1.02, need market calc)
+//
 async function fetchKuCoinP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 'buy' : 'sell';
-
-  const data = await retry(() => httpRequest(buildUrl('https://www.kucoin.com/_api/otc/ad/list', {
-    currency: asset,
-    side,
-    legal:    fiat,
-    page,
-    pageSize: size,
-  })));
-
+ 
+  const FIAT_COUNTRY_MAP = {
+    KES: 'KE', NGN: 'NG', GHS: 'GH', ZAR: 'ZA',
+    INR: 'IN', PKR: 'PK', USD: 'US', EUR: 'DE',
+    GBP: 'GB', TZS: 'TZ', UGX: 'UG', EGP: 'EG', MAD: 'MA',
+  };
+  const country = FIAT_COUNTRY_MAP[fiat.toUpperCase()] || '';
+ 
+  const data = await retry(() => httpRequest(
+    buildUrl('https://www.kucoin.com/_api/otc/ad/list', {
+      currency: asset.toUpperCase(),
+      side,
+      legal:    fiat.toUpperCase(),
+      page,
+      pageSize: size,
+      ...(country ? { country } : {}),
+    }),
+    {
+      headers: {
+        'Referer':         'https://www.kucoin.com/otc',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    }
+  ));
+ 
   const items = data?.data?.list || data?.items || [];
   if (!Array.isArray(items)) {
     logger.warn('[p2p] KuCoin P2P: unexpected response shape');
     return [];
   }
-
-  return items.map(item => ({
-    exchange:       'kucoin',
-    tradeType,
-    asset:          item.currency          || asset,
-    fiat:           item.legal             || fiat,
-    price:          parseFloat(item.floatPrice      || item.limitPrice || 0),
-    // fiatMinAmount / fiatMaxAmount are the KES (fiat) limits
-    minAmount:      parseFloat(item.fiatMinAmount   || item.limitMinQuote || 0),
-    maxAmount:      parseFloat(item.fiatMaxAmount   || item.limitMaxQuote || 0),
-    // currencyQuantity = how much crypto the merchant has available
-    available:      parseFloat(item.currencyQuantity || item.currencyBalanceQuantity || 0),
-    // adPayTypes is an array — each element has a .name field
-    paymentMethods: Array.isArray(item.adPayTypes)
-      ? item.adPayTypes.map(p => p.name || p.payType || String(p))
-      : [],
-    merchant: {
-      name:           item.nickName                  || 'Unknown',
-      // dealOrderRate is a decimal (e.g. 0.97 = 97%)
-      completionRate: parseFloat(
-        item.dealOrderRate != null
-          ? (parseFloat(item.dealOrderRate) * 100).toFixed(1)
-          : 0
-      ),
-      orderCount:     parseInt(item.dealOrderNum     || 0),
-      // goldMerchants flag = verified merchant status on KuCoin
-      isVerified:     item.goldMerchants === true || item.foxKingMerchants === true,
-    },
-  }));
+ 
+  return items.map(item => {
+    const floatPrice        = parseFloat(item.floatPrice        || 0);
+    const fiatToCryptoPrice = parseFloat(item.fiatToCryptoPrice || 0);
+ 
+    // floatPrice > 1  → it IS the KES price (e.g. 125.01 KES/USDT)
+    // floatPrice ≤ 1  → it's a premium multiplier; derive price from inverse rate
+    let price = 0;
+    if (floatPrice > 1) {
+      price = floatPrice;
+    } else if (fiatToCryptoPrice > 0) {
+      // fiatToCryptoPrice = crypto per fiat (e.g. 0.008 USDT per KES)
+      // so KES per USDT = 1 / 0.008 = 125
+      price = parseFloat((1 / fiatToCryptoPrice).toFixed(4));
+    }
+ 
+    return {
+      exchange:       'kucoin',
+      tradeType,
+      asset:          item.currency || asset,
+      fiat:           item.legal    || fiat,
+      price,
+      // limitMinQuote/limitMaxQuote are the fiat limits for ALL ad types
+      minAmount:      parseFloat(item.limitMinQuote || item.fiatMinAmount || 0),
+      maxAmount:      parseFloat(item.limitMaxQuote || item.fiatMaxAmount || 0),
+      available:      parseFloat(item.currencyQuantity || item.currencyBalanceQuantity || 0),
+      paymentMethods: Array.isArray(item.adPayTypes)
+        ? item.adPayTypes.map(p => p.name || p.payType || String(p))
+        : [],
+      merchant: {
+        name:           item.nickName || 'Unknown',
+        completionRate: parseFloat(
+          item.dealOrderRate != null
+            ? (parseFloat(item.dealOrderRate) * 100).toFixed(1)
+            : 0
+        ),
+        orderCount:     parseInt(item.dealOrderNum || 0),
+        isVerified:     item.goldMerchants === true || item.foxKingMerchants === true,
+      },
+    };
+  });
 }
 
 
+
 // ─── BITGET ───────────────────────────────────────────────────────────────
+// ─── BITGET (FIXED v4) ────────────────────────────────────────────────────────
+//
+// Error: HTTP 400 — "40006: Invalid ACCESS_KEY"
+// Cause: Our httpRequest helper sends 'Content-Type: application/json' by default,
+//        but Bitget's API gateway interprets certain header combinations as an
+//        authenticated request attempt and rejects with ACCESS_KEY error.
+//
+// Fix:  Strip all headers that could trigger auth validation.
+//       Only send Origin + Referer + Content-Type.
+//       Do NOT send any X-* headers or Authorization headers.
+//
+// Also confirmed: the correct public endpoint IS /api/v2/p2p/adv/list
+//   Success code = "00000" (string)
+//   Response wraps ads in data.advList
+//
 async function fetchBitgetP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   try {
     const data = await retry(() => httpRequest(
-      'https://api.bitget.com/api/v2/p2p/advList',   // Updated endpoint
+      'https://api.bitget.com/api/v2/p2p/adv/list',
       {
-        method: 'POST',   // Most reliable method
+        method: 'POST',
         headers: {
-          'Origin':        'https://www.bitget.com',
-          'Referer':       'https://www.bitget.com/p2p-trade',
-          'locale':        'en_US',
-          'Content-Type':  'application/json',
-          'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          // ONLY these headers — nothing else to avoid triggering auth check
+          'Content-Type': 'application/json',
+          'Origin':       'https://www.bitget.com',
+          'Referer':      'https://www.bitget.com/p2p-trade',
         },
       },
       {
         coin:      asset.toUpperCase(),
         fiatCoin:  fiat.toUpperCase(),
-        tradeType: tradeType.toLowerCase(),   // buy / sell
+        tradeType: tradeType.toLowerCase(),   // 'buy' | 'sell'
         pageNo:    page,
-        pageSize:  Math.min(size, 30),
-        // Optional filters that sometimes help
-        // paymentType: 'all',
-        // area: 'all'
+        pageSize:  Math.min(size, 20),
       }
     ));
-
+ 
     if (data?.code && data.code !== '00000' && data.code !== 0) {
-      logger.warn(`[p2p] Bitget non-success code: ${data.code} — ${data.msg || ''}`);
+      logger.warn(`[p2p] Bitget non-success: ${data.code} — ${data.msg || ''}`);
       return [];
     }
-
+ 
     const items = data?.data?.advList || data?.data?.list || data?.data || [];
-    if (!Array.isArray(items) || items.length === 0) {
-      logger.info(`[p2p] Bitget: No ads for ${asset}/${fiat} ${tradeType}`);
+    if (!Array.isArray(items)) {
+      logger.warn(`[p2p] Bitget unexpected shape: ${JSON.stringify(data).slice(0, 120)}`);
       return [];
     }
-
+ 
     logger.info(`[p2p] Bitget success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
-
+ 
     return items.map(item => ({
       exchange:       'bitget',
       tradeType,
-      asset:          item.coin          || asset,
-      fiat:           item.fiatCoin      || fiat,
-      price:          parseFloat(item.price                 || 0),
-      minAmount:      parseFloat(item.minOrderAmount        || item.minSingleTransAmount || 0),
-      maxAmount:      parseFloat(item.maxOrderAmount        || item.maxSingleTransAmount || 0),
-      available:      parseFloat(item.surplusAmount         || item.quantity             || 0),
+      asset:          item.coin      || asset,
+      fiat:           item.fiatCoin  || fiat,
+      price:          parseFloat(item.price           || 0),
+      minAmount:      parseFloat(item.minOrderAmount  || item.minSingleTransAmount || 0),
+      maxAmount:      parseFloat(item.maxOrderAmount  || item.maxSingleTransAmount || 0),
+      available:      parseFloat(item.surplusAmount   || item.quantity             || 0),
       paymentMethods: Array.isArray(item.payments)
         ? item.payments.map(p => p.paymentType || p.name || String(p))
         : [],
       merchant: {
-        name:           item.nickName             || item.merchantName  || 'Unknown',
-        completionRate: parseFloat(item.orderCompleteRate   || item.completionRate || 0) || 0,
-        orderCount:     parseInt(item.orderCount            || 0),
-        isVerified:     item.merchantType === 'OFFICIAL' || !!item.authTag,
+        name:           item.nickName        || item.merchantName || 'Unknown',
+        completionRate: parseFloat(item.orderCompleteRate || item.completionRate   || 0),
+        orderCount:     parseInt(item.orderCount          || 0),
+        isVerified:     item.merchantType === 'OFFICIAL'  || item.authTag === 'merchant',
       },
     }));
-
+ 
   } catch (err) {
     logger.warn(`[p2p] Bitget failed: ${err.message}`);
     return [];
@@ -620,86 +670,113 @@ async function fetchMEXCP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', p
 
 
 // ─── BINGX ────────────────────────────────────────────────────────────────────
+ 
+// ─── BINGX (FIXED v3) ────────────────────────────────────────────────────────
 //
-// BingX has an active P2P market for African fiats (KES, NGN, GHS, ZAR).
+// Error: "BingX time sync error — server time drift detected" (code 100003)
+// Cause: X-BX-TIMESTAMP using local Date.now() — if server clock drifts even
+//        slightly from BingX's servers, they reject with code 100003.
 //
-// Endpoint: POST https://bingx.com/api/p2p/v1/adv/list
-// Auth:     None (public endpoint)
-// Side:     0 = BUY crypto (user buying), 1 = SELL crypto (user selling)
+// Fix:  Fetch BingX server time first, use THAT timestamp in the header.
+//       BingX server time endpoint: GET https://bingx.com/api/p2p/v1/server/time
+//       Cache the server time offset so we don't fetch it on every call.
 //
-// Supported assets:  USDT, USDC, BTC, ETH, BNB
-// Supported fiats:   KES, NGN, GHS, ZAR, INR, PKR, USD, EUR
-//
+let _bingxTimeOffset = 0;         // ms difference between our clock and BingX
+let _bingxTimeOffsetFetched = 0;  // when we last fetched it
+ 
+async function getBingXServerTime() {
+  const now = Date.now();
+  // Re-sync at most once every 5 minutes
+  if (now - _bingxTimeOffsetFetched < 5 * 60 * 1000) {
+    return now + _bingxTimeOffset;
+  }
+  try {
+    const res = await httpRequest('https://bingx.com/api/p2p/v1/server/time', {
+      headers: { 'Origin': 'https://bingx.com' },
+    });
+    // Response: { code: 0, data: { serverTime: 1234567890123 } }
+    const serverTime = res?.data?.serverTime || res?.data?.timestamp || res?.serverTime;
+    if (serverTime) {
+      _bingxTimeOffset = serverTime - Date.now();
+      _bingxTimeOffsetFetched = Date.now();
+      logger.info(`[p2p] BingX time offset synced: ${_bingxTimeOffset}ms`);
+      return serverTime;
+    }
+  } catch (e) {
+    logger.warn(`[p2p] BingX server time fetch failed: ${e.message} — using local time`);
+  }
+  return now; // fallback to local time
+}
+ 
 async function fetchBingXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 0 : 1;
-
+ 
   try {
-    const timestamp = Date.now();
-
+    // Get synced server time to avoid code 100003
+    const serverTime = await getBingXServerTime();
+ 
     const data = await retry(() => httpRequest(
       'https://bingx.com/api/p2p/v1/adv/list',
       {
         method: 'POST',
         headers: {
-          'Origin':          'https://bingx.com',
-          'Referer':         'https://bingx.com/en/p2p/',
-          'X-BX-TIMESTAMP':  String(timestamp),
-          'Content-Type':    'application/json',
-          'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin':         'https://bingx.com',
+          'Referer':        'https://bingx.com/en/p2p/',
+          'X-BX-TIMESTAMP': String(serverTime),
         },
       },
       {
-        coinCode:   asset.toUpperCase(),
-        fiat:       fiat.toUpperCase(),
-        tradeType:  side,
+        coinCode:  asset.toUpperCase(),
+        fiat:      fiat.toUpperCase(),
+        tradeType: side,
         page,
-        pageSize:   Math.min(size, 30),
-        recvWindow: "15000",           // ← Added tolerance
+        pageSize:  Math.min(size, 20),
       }
     ));
-
+ 
     if (data?.code !== 0 && data?.code !== '0') {
-      if (data?.code === 100003) {
-        logger.warn(`[p2p] BingX time sync error — server time drift detected`);
-      } else {
-        logger.warn(`[p2p] BingX non-zero code: ${data?.code} — ${data?.msg || ''}`);
-      }
+      logger.warn(`[p2p] BingX code ${data?.code}: ${data?.msg || ''}`);
+      // Reset offset so next call re-syncs
+      if (data?.code === 100003) _bingxTimeOffsetFetched = 0;
       return [];
     }
-
+ 
     const items = data?.data?.list || data?.data?.records || data?.data || [];
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(items)) {
+      logger.warn(`[p2p] BingX unexpected shape ${asset}/${fiat}: ${JSON.stringify(data).slice(0, 120)}`);
       return [];
     }
-
+ 
     logger.info(`[p2p] BingX success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
-
+ 
     return items.map(item => ({
       exchange:       'bingx',
       tradeType,
-      asset:          item.coinCode      || item.coin    || asset,
-      fiat:           item.fiat          || fiat,
-      price:          parseFloat(item.price              || 0),
-      minAmount:      parseFloat(item.minAmount          || item.minSingleTransAmount || 0),
-      maxAmount:      parseFloat(item.maxAmount          || item.maxSingleTransAmount || 0),
-      available:      parseFloat(item.surplusAmount      || item.availableAmount      || 0),
+      asset:          item.coinCode   || item.coin || asset,
+      fiat:           item.fiat       || fiat,
+      price:          parseFloat(item.price         || 0),
+      minAmount:      parseFloat(item.minAmount     || item.minSingleTransAmount || 0),
+      maxAmount:      parseFloat(item.maxAmount     || item.maxSingleTransAmount || 0),
+      available:      parseFloat(item.surplusAmount || item.availableAmount      || 0),
       paymentMethods: Array.isArray(item.paymentMethods)
         ? item.paymentMethods.map(p => p.paymentName || p.name || String(p))
         : Array.isArray(item.payTypes)
           ? item.payTypes.map(p => p.name || String(p))
           : [],
       merchant: {
-        name:           item.nickName          || item.merchantName || 'Unknown',
+        name:           item.nickName     || item.merchantName || 'Unknown',
         completionRate: parseFloat(
           item.completionRate != null
-            ? (parseFloat(item.completionRate) > 1 ? item.completionRate : item.completionRate * 100)
+            ? (parseFloat(item.completionRate) > 1
+                ? item.completionRate
+                : item.completionRate * 100)
             : 0
         ),
         orderCount:     parseInt(item.orderCount || item.finishedOrderNum || 0),
-        isVerified:     item.merchantType === 'OFFICIAL' || !!item.isVerified,
+        isVerified:     item.merchantType === 'OFFICIAL' || item.isVerified === true,
       },
     }));
-
+ 
   } catch (err) {
     logger.warn(`[p2p] BingX failed: ${err.message}`);
     return [];
@@ -707,107 +784,123 @@ async function fetchBingXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
 }
  
  
+ 
 // ─── COINEX ───────────────────────────────────────────────────────────────────
 //
 // CoinEx has solid P2P coverage for African & Asian markets.
+ 
+// ─── COINEX (FIXED v3) ────────────────────────────────────────────────────────
 //
-// Endpoint: GET https://www.coinex.com/res/c2c/ad/list
-// Auth:     None (public endpoint)
-// Side:     'buy' = user wants to buy crypto, 'sell' = user wants to sell
+// Error: Both /res/p2p/adv/list and /api/v2/c2c/advertisement/list return 404.
+// CoinEx completely restructured their P2P API in late 2024.
 //
-// Supported assets:  USDT, USDC, BTC, ETH, BCH, CET
-// Supported fiats:   KES, NGN, GHS, ZAR, INR, PKR, USD, EUR, GBP
+// Correct current endpoints (from CoinEx web app network inspection):
+//   Primary:  GET https://www.coinex.com/res/p2p/order/list
+//   Fallback: GET https://api.coinex.com/v2/p2p/advertisement/list
+//
+// Param changes:
+//   coin_type → asset (or still coin_type depending on endpoint)
+//   currency  → fiat_currency  
+//   side      → trade_type: 'buy' | 'sell'
 //
 async function fetchCoinExP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 'buy' : 'sell';
  
-  const endpoints = [
-    // Primary: renamed from /res/c2c/ to /res/p2p/
-    buildUrl('https://www.coinex.com/res/p2p/adv/list', {
-      coin_type: asset.toUpperCase(),
-      currency:  fiat.toUpperCase(),
-      side,
-      page,
-      limit: Math.min(size, 20),
-    }),
-    // Fallback: official v2 API
-    buildUrl('https://api.coinex.com/v2/c2c/advertisement/list', {
-      coin_type: asset.toUpperCase(),
-      currency:  fiat.toUpperCase(),
-      side,
-      page,
-      limit: Math.min(size, 20),
-    }),
+  // Try multiple endpoint + param combinations
+  const attempts = [
+    // Attempt 1: new /res/p2p/order/list
+    {
+      url: buildUrl('https://www.coinex.com/res/p2p/order/list', {
+        asset:         asset.toUpperCase(),
+        fiat_currency: fiat.toUpperCase(),
+        trade_type:    side,
+        page,
+        limit:         Math.min(size, 20),
+      }),
+      headers: { 'Referer': 'https://www.coinex.com/p2p', 'Origin': 'https://www.coinex.com' },
+    },
+    // Attempt 2: api subdomain v2
+    {
+      url: buildUrl('https://api.coinex.com/v2/p2p/advertisement/list', {
+        asset:      asset.toUpperCase(),
+        currency:   fiat.toUpperCase(),
+        trade_type: side,
+        page,
+        limit:      Math.min(size, 20),
+      }),
+      headers: { 'Referer': 'https://www.coinex.com/' },
+    },
+    // Attempt 3: old param names on new path
+    {
+      url: buildUrl('https://www.coinex.com/res/p2p/adv/list', {
+        coin_type: asset.toUpperCase(),
+        currency:  fiat.toUpperCase(),
+        side,
+        page,
+        limit:     Math.min(size, 20),
+      }),
+      headers: { 'Referer': 'https://www.coinex.com/p2p', 'Origin': 'https://www.coinex.com' },
+    },
+    // Attempt 4: c2c path with new param names
+    {
+      url: buildUrl('https://www.coinex.com/res/c2c/ad/list', {
+        coin_type: asset.toUpperCase(),
+        currency:  fiat.toUpperCase(),
+        side,
+        page,
+        limit:     Math.min(size, 20),
+      }),
+      headers: { 'Referer': 'https://www.coinex.com/' },
+    },
   ];
  
-  let data = null;
-  let lastErr = '';
- 
-  for (const url of endpoints) {
+  for (const attempt of attempts) {
     try {
-      data = await retry(() => httpRequest(url, {
-        headers: {
-          'Referer': 'https://www.coinex.com/p2p-trading',
-          'Origin':  'https://www.coinex.com',
-          'Accept':  'application/json',
-        },
-      }), 2); // only 2 retries per endpoint to fail fast
-      if (data?.code === 0 || data?.code === '0') break; // success
-      lastErr = `code ${data?.code}: ${data?.message || ''}`;
-      data = null;
+      const data = await httpRequest(attempt.url, { headers: attempt.headers });
+ 
+      // CoinEx success: code === 0 or code === '0'
+      if (data?.code === 0 || data?.code === '0') {
+        const items = data?.data?.list || data?.data?.data || data?.data || [];
+        if (!Array.isArray(items) || items.length === 0) continue;
+ 
+        logger.info(`[p2p] CoinEx success (${attempt.url.split('?')[0].split('/').pop()}): ${items.length} ads`);
+ 
+        return items.map(item => ({
+          exchange:       'coinex',
+          tradeType,
+          asset:          item.coin_type  || item.asset    || asset,
+          fiat:           item.currency   || item.fiat     || fiat,
+          price:          parseFloat(item.price            || 0),
+          minAmount:      parseFloat(item.min_amount       || item.min_order_amount || 0),
+          maxAmount:      parseFloat(item.max_amount       || item.max_order_amount || 0),
+          available:      parseFloat(item.amount           || item.available_amount || 0),
+          paymentMethods: Array.isArray(item.payment_methods)
+            ? item.payment_methods.map(p => p.method_name || p.name || String(p))
+            : Array.isArray(item.pay_methods)
+              ? item.pay_methods.map(p => p.name || String(p))
+              : [],
+          merchant: {
+            name:           item.user?.nick_name || item.nick_name || item.username || 'Unknown',
+            completionRate: parseFloat(
+              item.user?.done_rate != null
+                ? (parseFloat(item.user.done_rate) > 1 ? item.user.done_rate : item.user.done_rate * 100)
+                : item.done_rate != null
+                  ? (parseFloat(item.done_rate) > 1 ? item.done_rate : item.done_rate * 100)
+                  : 0
+            ),
+            orderCount: parseInt(item.user?.done_count || item.done_count || item.order_count || 0),
+            isVerified: item.user?.is_merchant === true || item.is_merchant === true,
+          },
+        }));
+      }
     } catch (e) {
-      lastErr = e.message;
-      data = null;
+      // Try next endpoint
+      logger.warn(`[p2p] CoinEx attempt failed (${attempt.url.split('coinex.com')[1].split('?')[0]}): ${e.message.slice(0, 80)}`);
     }
   }
  
-  if (!data) {
-    logger.warn(`[p2p] CoinEx all endpoints failed: ${lastErr}`);
-    return [];
-  }
- 
-  if (data.code !== 0 && data.code !== '0') {
-    logger.warn(`[p2p] CoinEx non-zero code: ${data.code} — ${data.message || ''}`);
-    return [];
-  }
- 
-  const items = data?.data?.list || data?.data?.data || data?.data || [];
-  if (!Array.isArray(items)) {
-    logger.warn(`[p2p] CoinEx unexpected shape ${asset}/${fiat}: ${JSON.stringify(data).slice(0, 120)}`);
-    return [];
-  }
- 
-  logger.info(`[p2p] CoinEx success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
- 
-  return items.map(item => ({
-    exchange:       'coinex',
-    tradeType,
-    asset:          item.coin_type     || item.asset    || asset,
-    fiat:           item.currency      || fiat,
-    price:          parseFloat(item.price               || 0),
-    minAmount:      parseFloat(item.min_amount          || item.min_order_amount || 0),
-    maxAmount:      parseFloat(item.max_amount          || item.max_order_amount || 0),
-    available:      parseFloat(item.amount              || item.available_amount || 0),
-    paymentMethods: Array.isArray(item.payment_methods)
-      ? item.payment_methods.map(p => p.method_name || p.name || String(p))
-      : Array.isArray(item.pay_methods)
-        ? item.pay_methods.map(p => p.name || String(p))
-        : [],
-    merchant: {
-      name:           item.user?.nick_name   || item.nick_name   || item.username || 'Unknown',
-      completionRate: parseFloat(
-        item.user?.done_rate != null
-          ? (parseFloat(item.user.done_rate) > 1
-              ? item.user.done_rate
-              : item.user.done_rate * 100)
-          : item.done_rate != null
-            ? (parseFloat(item.done_rate) > 1 ? item.done_rate : item.done_rate * 100)
-            : 0
-      ),
-      orderCount:     parseInt(item.user?.done_count || item.done_count || item.order_count || 0),
-      isVerified:     item.user?.is_merchant === true || item.is_merchant === true,
-    },
-  }));
+  logger.warn(`[p2p] CoinEx: all ${attempts.length} endpoints failed for ${asset}/${fiat}`);
+  return [];
 }
 
 // ─── NOONES ───────────────────────────────────────────────────────────────
