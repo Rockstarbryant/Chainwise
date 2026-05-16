@@ -59,24 +59,22 @@ app.use(notFound);
 app.use(globalError);
 
 // ── Redis + Background Services ──────────────────────────────────────────
-const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
-  const { Redis } = require('ioredis');
-  const REDIS_URL = process.env.REDIS_URL || null;
+// ── Redis + Background Services ──────────────────────────────────────────
+const waitForRedisAndStartWorker = async (retries = 25, delayMs = 4000) => {
+  const { createBullConnection } = require('./config/redis'); // make sure path is correct
 
-  const isTlsUrl = (url) => url?.startsWith('rediss://') || url?.includes('redislabs.com') || url?.includes('upstash.io');
+  logger.info('[startup] Waiting for Redis...');
 
   for (let i = 1; i <= retries; i++) {
     let probe = null;
     try {
-      probe = isTlsUrl(REDIS_URL) 
-        ? new Redis(REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true, tls: { rejectUnauthorized: false } })
-        : new Redis({ host: process.env.REDIS_HOST || '127.0.0.1', port: parseInt(process.env.REDIS_PORT || '6379'), password: process.env.REDIS_PASSWORD, maxRetriesPerRequest: 1, lazyConnect: true });
-
-      await probe.connect();
+      probe = createBullConnection();
+      
       await probe.ping();
       await probe.quit();
 
-      logger.info('[startup] Redis ready — starting services');
+      logger.info('[startup] ✅ Redis is ready — starting background services');
+
       const { startWorker } = require('./jobs/syncQueue');
       const { startCron }   = require('./jobs/cronJob');
       const { startP2PCron } = require('./jobs/p2pCron');
@@ -85,14 +83,22 @@ const waitForRedisAndStartWorker = async (retries = 20, delayMs = 3000) => {
       startCron();
       startP2PCron();
 
+      logger.info('✅ BullMQ Worker + All Crons started successfully');
       return;
+
     } catch (err) {
-      if (probe) try { await probe.quit(); } catch (_) {}
+      if (probe) {
+        try { await probe.quit(); } catch (_) {}
+      }
       logger.warn(`[startup] Redis not ready (attempt ${i}/${retries}): ${err.message}`);
-      if (i < retries) await new Promise(r => setTimeout(r, delayMs));
+      
+      if (i < retries) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
     }
   }
-  logger.warn('[startup] Redis unavailable — background services skipped');
+
+  logger.warn('[startup] ❌ Redis unavailable after all retries — running in API-only mode');
 };
 
 // ── Start Server ─────────────────────────────────────────────────────────
