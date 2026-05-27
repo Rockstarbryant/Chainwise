@@ -51,6 +51,14 @@ function feeWarning(fee, coin) {
   return null;
 }
 
+function exchangeNotFound(exchange) {
+  return {
+    error: `Exchange '${exchange}' not found.`,
+    suggestion: "Supported exchanges: binance, bybit, bitget, kucoin, gateio, coinex, bingx, mexc, okx",
+    supportedExchanges: ["binance", "bybit", "bitget", "kucoin", "gateio", "coinex", "bingx", "mexc", "okx"]
+  };
+}
+
 // ── 1. get_withdrawal_fees ─────────────────────────────────────────────────
 async function getWithdrawalFees({ exchange, coin }) {
   const doc = await ExchangeFee.findOne({ exchange: exchange.toLowerCase() });
@@ -1037,18 +1045,57 @@ async function getNetworkCongestion({ networks }) {
 
 // ── 23. get_all_exchange_coins ─────────────────────────────────────────────
 async function getAllExchangeCoins({ exchange, search }) {
+  const searchTerm = search ? search.toUpperCase() : null;
+
+  if (exchange.toLowerCase() === 'all') {
+    const allDocs = await ExchangeFee.find({}).lean();
+    let results = [];
+
+    for (const doc of allDocs) {
+      const coins = doc.coins
+        .filter(c => !searchTerm || c.symbol.toUpperCase().includes(searchTerm))
+        .map(c => {
+          const activeNetworks = c.networks.filter(n => n.isActive !== false);
+          return {
+            symbol:       c.symbol,
+            exchange:     doc.displayName,
+            exchangeSlug: doc.exchange,
+            networkCount: activeNetworks.length,
+            cheapestFee:  activeNetworks.length 
+              ? Math.min(...activeNetworks.map(n => n.withdrawFee)) 
+              : null,
+            cheapestChain: activeNetworks.length
+              ? activeNetworks.sort((a, b) => a.withdrawFee - b.withdrawFee)[0]?.chain
+              : null,
+          };
+        });
+
+      results = results.concat(coins);
+    }
+
+    return {
+      search: searchTerm || 'all',
+      totalExchanges: allDocs.length,
+      totalCoinsFound: results.length,
+      coins: results.slice(0, 80), // prevent huge responses
+    };
+  }
+
+  // Original single exchange logic
   const doc = await ExchangeFee.findOne({ exchange: exchange.toLowerCase() });
-  if (!doc) return { error: `Exchange '${exchange}' not found.` };
+  if (!doc) return exchangeNotFound(exchange);
+  //if (!doc) return { error: `Exchange '${exchange}' not found.` };
 
   let coins = doc.coins.map(c => ({
     symbol:       c.symbol,
     networkCount: c.networks.filter(n => n.isActive !== false).length,
     cheapestFee:  Math.min(...c.networks.filter(n => n.isActive !== false).map(n => n.withdrawFee)),
-    cheapestChain: c.networks.filter(n => n.isActive !== false).sort((a, b) => a.withdrawFee - b.withdrawFee)[0]?.chain,
+    cheapestChain: c.networks.filter(n => n.isActive !== false)
+      .sort((a, b) => a.withdrawFee - b.withdrawFee)[0]?.chain,
   }));
 
-  if (search) {
-    coins = coins.filter(c => c.symbol.toUpperCase().startsWith(search.toUpperCase()));
+  if (searchTerm) {
+    coins = coins.filter(c => c.symbol.includes(searchTerm));
   }
 
   return {
@@ -1196,6 +1243,59 @@ async function getExchangeInfo({ exchange }) {
   };
 }
 
+// ── 27. search_coin_across_exchanges ───────────────────────────────────────
+async function searchCoinAcrossExchanges({ coin, minNetworks = 1 }) {
+  const symbol = coin.toUpperCase();
+  
+  const allDocs = await ExchangeFee.find({}).lean();
+  
+  const results = [];
+
+  for (const doc of allDocs) {
+    const coinData = doc.coins.find(c => c.symbol === symbol);
+    if (!coinData) continue;
+
+    const activeNetworks = coinData.networks.filter(n => n.isActive !== false);
+    
+    if (activeNetworks.length < minNetworks) continue;
+
+    const sorted = [...activeNetworks].sort((a, b) => a.withdrawFee - b.withdrawFee);
+    const cheapest = sorted[0];
+
+    results.push({
+      exchange:       doc.displayName,
+      exchangeSlug:   doc.exchange,
+      coin:           symbol,
+      networkCount:   activeNetworks.length,
+      cheapestChain:  cheapest.chain,
+      cheapestFee:    cheapest.withdrawFee,
+      cheapestFeeUSD: cheapest.withdrawFeeUSD,
+      minWithdraw:    cheapest.minWithdraw,
+      allNetworks:    sorted.map(n => ({
+        chain:       n.chain,
+        chainId:     n.chainId,
+        fee:         n.withdrawFee,
+        minWithdraw: n.minWithdraw,
+        arrival:     arrivalLabel(n.chainId),
+      })),
+    });
+  }
+
+  results.sort((a, b) => a.cheapestFee - b.cheapestFee);
+
+  return {
+    coin: symbol,
+    foundOnExchanges: results.length,
+    results: results,
+    summary: results.length > 0 
+      ? `Found ${symbol} on ${results.length} exchanges. Cheapest: ${results[0].exchange} via ${results[0].cheapestChain} (${results[0].cheapestFee} ${symbol})`
+      : `No exchanges in our database currently support ${symbol}.`,
+    suggestion: results.length === 0 
+      ? "Try checking CoinGecko for listings and major CEXs (Binance, Bybit, KuCoin, MEXC, Gate.io)." 
+      : "Use the cheapest option above for withdrawal.",
+  };
+}
+
 // ── get_p2p_rates ──────────────────────────────────────────────────────────
 // Returns best/avg/worst buy AND sell rates for a pair across all exchanges.
 // Lightweight — used when agent just needs rate context, not full ad list.
@@ -1318,6 +1418,7 @@ async function executeTool(name, input) {
     check_withdrawal_minimums:    checkWithdrawalMinimums,
     get_network_congestion:       getNetworkCongestion,
     get_all_exchange_coins:       getAllExchangeCoins,
+    search_coin_across_exchanges: searchCoinAcrossExchanges,
     compare_deposit_fees:         compareDepositFees,
     find_p2p_best_rate:           findP2PBestRate,
     get_exchange_info:            getExchangeInfo,

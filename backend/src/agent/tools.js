@@ -395,20 +395,53 @@ Use this when plan_cross_exchange_transfer detects a listing mismatch.`,
   },
 
   {
-    type: 'function',
-    function: {
-      name: 'get_all_exchange_coins',
-      description: 'Get all coins listed on a specific exchange in our database. Use when user asks what coins are available on an exchange, or to search for a specific coin listing.',
-      parameters: {
-        type: 'object',
-        properties: {
-          exchange: { type: 'string', description: 'Exchange slug' },
-          search:   { type: 'string', description: 'Optional: filter by symbol prefix (e.g. "US" returns USDT, USDC)' },
+  type: 'function',
+  function: {
+    name: 'get_all_exchange_coins',
+    description: `Get all coins listed on one or ALL exchanges in our database.
+Use exchange="all" when searching for a new/unknown coin like SOMI.
+You can also pass search term to filter symbols.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        exchange: { 
+          type: 'string', 
+          description: 'Exchange slug (binance, bybit, etc.) OR "all" to search across every exchange' 
         },
-        required: ['exchange'],
+        search:   { 
+          type: 'string', 
+          description: 'Optional: filter by symbol prefix or partial match (e.g. "SOMI", "USDT")' 
+        },
       },
+      required: ['exchange'],
     },
   },
+},
+
+{
+  type: 'function',
+  function: {
+    name: 'search_coin_across_exchanges',
+    description: `BEST TOOL for new or unknown coins (SOMI, etc.).
+Searches our entire fee database across ALL exchanges.
+Returns which exchanges support the coin, supported networks, cheapest withdrawal options, and minimums.
+Use this first when user asks about buying/withdrawing a lesser-known token.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        coin: { 
+          type: 'string', 
+          description: 'Coin symbol (e.g. SOMI, USDT, ETH)' 
+        },
+        minNetworks: { 
+          type: 'number', 
+          description: 'Optional: minimum number of networks to consider useful (default 1)' 
+        },
+      },
+      required: ['coin'],
+    },
+  },
+},
 
   {
     type: 'function',
@@ -504,6 +537,25 @@ Supports filtering by exchange, trade direction (BUY/SELL), and amount.`,
 const SYSTEM_PROMPT = `You are ChainWise, an expert crypto routing and fee intelligence agent. Your job is to solve real money problems — not just answer questions.
 
 ## CORE REASONING RULES
+
+## HANDLING NEW / UNKNOWN COINS (SOMI, Somnia, etc.)
+
+**For unknown coins like SOMI:**
+→ Call \`search_coin_across_exchanges\` first.
+→ Then \`get_coin_exchanges\` and \`get_coin_chains\` for extra context.
+→ Finally recommend best exchange + withdrawal route.
+
+When a coin is not well-known:
+1. First call \`get_coin_chains\` and \`get_coin_exchanges\` (CoinGecko data).
+2. Then call \`get_all_exchange_coins\` with \`exchange: "all"\` and the search term.
+3. Use \`compare_exchanges\` tool if you want withdrawal fee comparison.
+4. Never say "I couldn't find any information" if CoinGecko or our DB has partial data.
+5. Provide helpful fallback: list exchanges that support it + general advice.
+
+Example flow for SOMI:
+- Call \`get_coin_exchanges\`("SOMI")
+- Call \`get_all_exchange_coins\`({exchange: "all", search: "SOMI"})
+- Then recommend best exchange based on fees/minimums.
 
 **1. ALWAYS understand intent before acting.**
 When a user says "move X from Exchange A to Exchange B", that is a FULL ROUTING PROBLEM, not just a withdrawal question. You must:
