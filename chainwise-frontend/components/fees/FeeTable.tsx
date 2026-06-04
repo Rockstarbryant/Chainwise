@@ -35,6 +35,7 @@ interface ComparisonRow {
   withdrawFee: number;
   withdrawFeeUSD: number | null;
   minWithdraw: number;
+  minDeposit: number;
   arrivalMins: number;
   allNetworks: NetworkRow[];
 }
@@ -373,8 +374,9 @@ export default function FeeTable() {
                   <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Exchange</th>
                   <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">{chainColumnLabel}</th>
                   <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Fee</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden sm:table-cell">Fee USD</th>
+                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Fee USD</th>
                   <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden md:table-cell">Min Withdraw</th>
+                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden lg:table-cell">Min Deposit</th> {/* NEW */}
                   <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden sm:table-cell">ETA</th>
                 </tr>
               </thead>
@@ -407,6 +409,10 @@ export default function FeeTable() {
                     </td>
                     <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hidden md:table-cell">
                       {row.minWithdraw} <span className="text-xs">{selectedCoin}</span>
+                    </td>
+                    {/* Min Deposit - NEW */}
+                    <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hidden lg:table-cell">
+                      {row.minDeposit} <span className="text-xs">{selectedCoin}</span>
                     </td>
                     <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 hidden sm:table-cell">~{row.arrivalMins}m</td>
                   </tr>
@@ -536,38 +542,46 @@ export default function FeeTable() {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
-                              <div className="space-y-1">
-                                <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Fee</p>
-                                <p className="font-mono text-sm font-medium">
-                                  {n.withdrawFee === 0 ? 'FREE' : n.withdrawFee}
-                                </p>
-                                {n.withdrawFee !== 0 && (
-                                  <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
-                                    {selectedCoin}
-                                    {n.withdrawFeeUSD != null && (
-                                      <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                                        (~${n.withdrawFeeUSD.toFixed(2)})
-                                      </span>
-                                    )}
-                                  </p>
-                                )}
-                              </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+  {/* Fee */}
+  <div className="space-y-1">
+    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Fee</p>
+    <p className="font-mono text-sm font-medium">
+      {n.withdrawFee === 0 ? 'FREE' : n.withdrawFee}
+    </p>
+    {n.withdrawFee !== 0 && (
+      <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+        {selectedCoin}
+        {n.withdrawFeeUSD != null && (
+          <span className="ml-1 text-neutral-400 dark:text-neutral-500">(~${n.withdrawFeeUSD.toFixed(2)})</span>
+        )}
+      </p>
+    )}
+  </div>
 
-                              <div className="space-y-1">
-                                <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Min Withdraw</p>
-                                <p className="font-mono text-sm font-medium">{n.minWithdraw}</p>
-                                <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{selectedCoin}</p>
-                              </div>
+  {/* Min Withdraw */}
+  <div className="space-y-1">
+    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Min Withdraw</p>
+    <p className="font-mono text-sm font-medium">{n.minWithdraw}</p>
+    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{selectedCoin}</p>
+  </div>
 
-                              <div className="space-y-1">
-                                <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">ETA</p>
-                                <p className="font-mono text-sm font-medium">~{n.arrivalMins}</p>
-                                <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
-                                  {n.arrivalMins === 1 ? 'minute' : 'minutes'}
-                                </p>
-                              </div>
-                            </div>
+  {/* Min Deposit - NEW */}
+  <div className="space-y-1">
+    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Min Deposit</p>
+    <p className="font-mono text-sm font-medium">{n.minDeposit}</p>
+    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{selectedCoin}</p>
+  </div>
+
+  {/* ETA */}
+  <div className="space-y-1">
+    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">ETA</p>
+    <p className="font-mono text-sm font-medium">~{n.arrivalMins}</p>
+    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+      {n.arrivalMins === 1 ? 'minute' : 'minutes'}
+    </p>
+  </div>
+</div>
                           </div>
                         );
                       })}

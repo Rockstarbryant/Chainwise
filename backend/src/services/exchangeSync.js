@@ -499,6 +499,78 @@ async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase =
   return coinMap;
 }
 
+// ── Fetch coin prices from CoinGecko (free, no key needed) ────────────────
+async function fetchCoinPricesUSD(symbols) {
+  // CoinGecko uses lowercase IDs, but their /simple/price endpoint accepts symbols too
+  // via the `ids` param. We'll use the search by symbol approach via a known map,
+  // or just hit the simple price endpoint with common symbols.
+  const ids = symbols.join(',').toLowerCase();
+  return new Promise((resolve) => {
+    https.get(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
+      { headers: { 'Accept': 'application/json' } },
+      (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch { resolve({}); }
+        });
+      }
+    ).on('error', () => resolve({}));
+  });
+}
+
+// Map CCXT/exchange symbols → CoinGecko IDs for common coins
+const COINGECKO_ID_MAP = {
+  USDT: 'tether',
+  USDC: 'usd-coin',
+  BTC:  'bitcoin',
+  ETH:  'ethereum',
+  BNB:  'binancecoin',
+  SOL:  'solana',
+  XRP:  'ripple',
+  TRX:  'tron',
+  TON:  'the-open-network',
+  MATIC: 'matic-network',
+  // add more as needed
+};
+
+async function enrichWithUSDPrices(coinMap) {
+  // Collect unique symbols that have a known CoinGecko ID
+  const symbols = Object.keys(coinMap).filter(s => COINGECKO_ID_MAP[s]);
+  if (!symbols.length) return coinMap;
+
+  // Build reverse map: geckoId → symbol
+  const geckoIds    = symbols.map(s => COINGECKO_ID_MAP[s]);
+  const reverseMap  = {};
+  symbols.forEach(s => { reverseMap[COINGECKO_ID_MAP[s]] = s; });
+
+  let prices = {};
+  try {
+    prices = await fetchCoinPricesUSD(geckoIds);
+  } catch {
+    logger.warn('[sync] Could not fetch USD prices from CoinGecko — skipping USD enrichment');
+    return coinMap;
+  }
+
+  // Apply prices
+  for (const [geckoId, priceObj] of Object.entries(prices)) {
+    const symbol = reverseMap[geckoId];
+    if (!symbol || !coinMap[symbol]) continue;
+    const usdPrice = priceObj?.usd ?? null;
+    if (!usdPrice) continue;
+
+    for (const network of coinMap[symbol]) {
+      network.withdrawFeeUSD = network.withdrawFee > 0
+        ? parseFloat((network.withdrawFee * usdPrice).toFixed(4))
+        : 0;
+    }
+  }
+
+  return coinMap;
+}
+
 function estimateArrivalMins(networkId) {
   const id   = networkId.toLowerCase();
   const fast = ['bsc', 'polygon', 'arb', 'arbitrum', 'base', 'op', 'optimism', 'sol', 'solana', 'trc', 'tron', 'ton'];
@@ -523,6 +595,7 @@ async function syncExchange(exchangeKey, adminUserId) {
   let coinMap;
   try {
     coinMap = await fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase);
+    coinMap = await enrichWithUSDPrices(coinMap);
   } catch (err) {
     await ExchangeApiKey.findByIdAndUpdate(keyDoc._id, {
       lastError: err.message?.slice(0, 200),

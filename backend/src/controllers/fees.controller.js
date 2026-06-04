@@ -113,6 +113,7 @@ const compareAcrossExchanges = async (req, res, next) => {
         withdrawFee:    cheapest.withdrawFee,
         withdrawFeeUSD: cheapest.withdrawFeeUSD,
         minWithdraw:    cheapest.minWithdraw,
+        minDeposit:     cheapest.minDeposit,
         arrivalMins:    cheapest.arrivalMins,
         allNetworks:    sorted,                // ← new: full list, frontend does client-side chain switching
       });
@@ -138,6 +139,7 @@ const compareAcrossExchanges = async (req, res, next) => {
             withdrawFee:    net.withdrawFee,
             withdrawFeeUSD: net.withdrawFeeUSD,
             minWithdraw:    net.minWithdraw,
+            minDeposit:     net.minDeposit,
             arrivalMins:    net.arrivalMins,
           };
         })
