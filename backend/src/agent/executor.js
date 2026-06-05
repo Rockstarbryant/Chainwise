@@ -1,6 +1,7 @@
 const ExchangeFee = require('../models/ExchangeFee');
 const { fetchP2PAds } = require('../services/p2p');
 const coingecko   = require('../services/coingecko');
+const { cachedExecuteTool } = require('./toolCache');
 const lifi        = require('../services/lifi');
 const twitter     = require('../services/twitter');
 
@@ -930,7 +931,7 @@ async function planDepositToExchange({ coin, currentChain, targetExchange, amoun
       exchange: doc.displayName,
       coin:     coin.toUpperCase(),
       problem:  `${coin.toUpperCase()} is not in our database for ${doc.displayName}.`,
-      suggestion: `Consider bridging to USDT or USDC which are widely supported, then deposit those instead.`,
+      suggestion: `Consider converting or spot buy/sell to USDT or USDC on specific exchanges which are widely supported, then deposit those instead.`,
     };
   }
 
@@ -1388,6 +1389,22 @@ async function getP2PAds({ asset, fiat, tradeType, exchange = 'all', limit = 10 
     };
   }
 }
+
+// ── Input sanitizer — coerce types the LLM sometimes gets wrong ────────────
+function sanitizeInput(name, input) {
+  const numericFields = ['amount', 'limit', 'amountUSD', 'stuckAmountUSD', 'minNetworks'];
+  for (const field of numericFields) {
+    if (input[field] !== undefined && typeof input[field] === 'string') {
+      const parsed = parseFloat(input[field]);
+      if (!isNaN(parsed)) input[field] = parsed;
+    }
+  }
+  // Ensure arrays are arrays
+  if (name === 'get_network_congestion' && typeof input.networks === 'string') {
+    try { input.networks = JSON.parse(input.networks); } catch { input.networks = [input.networks]; }
+  }
+  return input;
+}
  
 
 // ── Main dispatcher ────────────────────────────────────────────────────────
@@ -1430,7 +1447,7 @@ async function executeTool(name, input) {
   if (!fn) return { error: `Unknown tool: ${name}`, availableTools: Object.keys(map) };
 
   try {
-    return await fn(input);
+    return await cachedExecuteTool(name, input, fn);
   } catch (err) {
     // Classify the error for better user messaging
     const msg = err.message || '';

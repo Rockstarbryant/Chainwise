@@ -1,5 +1,26 @@
 const ExchangeFee = require('../models/ExchangeFee');
 const { success, error: sendError } = require('../../utils/response');
+const ccxt = require('ccxt');
+
+// Helper function to fetch current price of a coin in USD using ccxt
+async function getCoinPrice(coin) {
+  try {
+    const exchange = new ccxt.binance({ enableRateLimit: true, timeout: 8000 });
+    const ticker = await exchange.fetchTicker(`${coin}/USDT`);
+    return parseFloat(ticker.last);
+  } catch (err) {
+    console.warn(`[price] Binance failed for ${coin}:`, err.message);
+    const fallbacks = ['bybit', 'okx', 'mexc', 'huobi', 'kucoin', 'gateio', 'bitget', 'bingx'];
+    for (const name of fallbacks) {
+      try {
+        const ex = new ccxt[name]({ enableRateLimit: true });
+        const ticker = await ex.fetchTicker(`${coin}/USDT`);
+        return parseFloat(ticker.last);
+      } catch (_) {}
+    }
+    return null;
+  }
+}
 
 // GET /api/fees
 const listExchanges = async (req, res, next) => {
@@ -71,6 +92,11 @@ const compareAcrossExchanges = async (req, res, next) => {
     const { coin, chain, amount } = req.query;
     if (!coin) return sendError(res, 'Query param `coin` is required', 400);
 
+    const coinUpper = coin.toUpperCase();
+
+    // ←←← ADD THIS PRICE FETCHING LOGIC
+    const priceUSD = await getCoinPrice(coinUpper);
+
     const all = await ExchangeFee.find({}).lean();
     const results = [];
 
@@ -103,7 +129,16 @@ const compareAcrossExchanges = async (req, res, next) => {
       if (!networks.length) continue;
 
       // Sort all networks cheapest first — this is the canonical order returned
-      const sorted = [...networks].sort((a, b) => a.withdrawFee - b.withdrawFee);
+      //const sorted = [...networks].sort((a, b) => a.withdrawFee - b.withdrawFee);
+      const sorted = [...networks]
+        .sort((a, b) => a.withdrawFee - b.withdrawFee)
+        .map(n => ({
+          ...n,
+          // ✅ Calculate USD on the fly using live price
+          withdrawFeeUSD: priceUSD && n.withdrawFee > 0
+            ? parseFloat((n.withdrawFee * priceUSD).toFixed(2))
+            : n.withdrawFee === 0 ? 0 : null,
+        }));
       const cheapest = sorted[0];
 
       results.push({
@@ -155,7 +190,7 @@ const compareAcrossExchanges = async (req, res, next) => {
 
     return success(
       res,
-      { coin: coin.toUpperCase(), comparison: filteredResults, availableChains },
+      { coin: coin.toUpperCase(), priceUSD, comparison: filteredResults, availableChains },
       200,
       { count: filteredResults.length }
     );

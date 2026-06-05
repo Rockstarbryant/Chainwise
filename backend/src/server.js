@@ -18,6 +18,7 @@ const agentRoute         = require('./routes/agent');
 const p2pRoutes          = require('./routes/p2p');
 const feesRoute          = require('./routes/fees');
 const syncRoute          = require('./routes/sync');
+const feedbackRoute = require('./routes/feedback');
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.get('/health', (_, res) => {
 app.use('/api/agent',         agentRoute);
 app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
+app.use('/api/feedback', feedbackRoute);
 app.use('/api/giveaways',     giveawayRoutes);
 app.use('/api/telegram',      telegramRoute);
 app.use('/api/sync',          syncRoute);

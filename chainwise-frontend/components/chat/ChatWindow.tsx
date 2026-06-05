@@ -1,12 +1,5 @@
 'use client';
 
-// app/chat/ChatWindow.tsx (or wherever your ChatWindow lives)
-// Changes from original:
-//   1. Empty-state guard: hide SuggestedPrompts as soon as the user sends
-//      (check `loading` too, not only `messages.length === 0`). This fixes
-//      the bug where prompts kept showing until the response arrived.
-//   2. No other logic changes — all hooks, handlers, and layout preserved.
-
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,37 +21,33 @@ export default function ChatWindow({ conversationId }: Props) {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { triggerHistoryRefresh } = useSidebarRefresh();
+
   const {
-    messages, loading, loadingHistory,
-    send, retry, editAndResend, clear,
+    messages, loading, isStreaming, loadingHistory,
+    send, retry, editAndResend, clear, sendFeedback,
     showAuthGate, setShowAuthGate,
     anonCount, anonLimit,
     createdConversationId,
   } = useChat(conversationId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const [editIndex,   setEditIndex]   = useState<number | null>(null);
-  const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
-
-  // Track whether the user has ever sent a message in this session so we
-  // can hide SuggestedPrompts immediately on send rather than waiting for
-  // the first message to appear in the messages array.
+  const [editIndex,      setEditIndex]      = useState<number | null>(null);
+  const [editPrefill,    setEditPrefill]    = useState<string | undefined>(undefined);
   const [hasSentMessage, setHasSentMessage] = useState(false);
 
-  /* ── Auto-scroll ────────────────────────────────────────────────────── */
+  /* ── Auto-scroll ─────────────────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  /* ── Redirect after auto-create ─────────────────────────────────────── */
+  /* ── Redirect after auto-create ──────────────────────────────────────── */
   useEffect(() => {
     if (!createdConversationId) return;
     triggerHistoryRefresh();
     router.replace(`/chat/${createdConversationId}`);
   }, [createdConversationId, router, triggerHistoryRefresh]);
 
-  /* ── Refresh sidebar after agent responds ───────────────────────────── */
+  /* ── Refresh sidebar after agent responds ─────────────────────────────── */
   const prevLoadingRef = useRef(false);
   useEffect(() => {
     const justFinished = prevLoadingRef.current && !loading;
@@ -69,15 +58,14 @@ export default function ChatWindow({ conversationId }: Props) {
     }
   }, [loading, conversationId, triggerHistoryRefresh]);
 
-  // Reset hasSentMessage when we navigate to a fresh /chat (no conversationId)
-  // and messages is empty, so suggested prompts re-appear for new chats.
+  /* ── Reset hasSentMessage on fresh /chat ─────────────────────────────── */
   useEffect(() => {
     if (!conversationId && messages.length === 0 && !loading) {
       setHasSentMessage(false);
     }
   }, [conversationId, messages.length, loading]);
 
-  /* ── Handlers ───────────────────────────────────────────────────────── */
+  /* ── Handlers ────────────────────────────────────────────────────────── */
   const handleEdit = (index: number) => {
     const msg = messages[index];
     if (!msg || msg.role !== 'user') return;
@@ -91,9 +79,7 @@ export default function ChatWindow({ conversationId }: Props) {
   };
 
   const handleSendOrEdit = (text: string) => {
-    // Mark as sent immediately so SuggestedPrompts disappears right away
     setHasSentMessage(true);
-
     if (editIndex !== null) {
       editAndResend(text, editIndex);
       setEditIndex(null);
@@ -115,21 +101,20 @@ export default function ChatWindow({ conversationId }: Props) {
     -1
   );
 
-  // SuggestedPrompts should only render when:
-  //   - history is not loading
-  //   - no messages have been received yet
-  //   - the user has NOT pressed send yet this session
-  //   - the agent is not currently generating a response
   const showSuggestedPrompts =
     !loadingHistory &&
     messages.length === 0 &&
     !hasSentMessage &&
     !loading;
 
+  // Show typing indicator only when loading but NO streaming message exists yet
+  const hasStreamingMessage = messages.some(m => m.isStreaming);
+  const showTypingIndicator = loading && !hasStreamingMessage;
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 z-30">
         <Header
           anonCount={anonCount}
@@ -138,7 +123,7 @@ export default function ChatWindow({ conversationId }: Props) {
         />
       </div>
 
-      {/* ── Scrollable message area ────────────────────────────────────────── */}
+      {/* ── Scrollable message area ──────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
         <div className="max-w-3xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
 
@@ -161,7 +146,7 @@ export default function ChatWindow({ conversationId }: Props) {
             </div>
           )}
 
-          {/* Empty state — only show when no message has been initiated */}
+          {/* Empty state */}
           {showSuggestedPrompts && (
             <SuggestedPrompts onSelect={(prompt) => {
               setHasSentMessage(true);
@@ -184,13 +169,14 @@ export default function ChatWindow({ conversationId }: Props) {
                   isLast={i === lastAssistantIndex}
                   onRetry={!loading ? retry : undefined}
                   onEdit={!loading ? handleEdit : undefined}
+                  onFeedback={msg.role === 'assistant' && !msg.isStreaming ? sendFeedback : undefined}
                 />
               </motion.div>
             ))}
           </AnimatePresence>
 
-          {/* Typing indicator */}
-          {loading && (
+          {/* Typing indicator — only shown before the streaming message appears */}
+          {showTypingIndicator && (
             <motion.div
               className="flex gap-3 sm:gap-4 items-start"
               initial={{ opacity: 0, y: 8 }}
@@ -217,7 +203,7 @@ export default function ChatWindow({ conversationId }: Props) {
         </div>
       </div>
 
-      {/* ── Input ─────────────────────────────────────────────────────────── */}
+      {/* ── Input ────────────────────────────────────────────────────────── */}
       <MessageInput
         onSend={handleSendOrEdit}
         loading={loading || loadingHistory}
@@ -225,7 +211,7 @@ export default function ChatWindow({ conversationId }: Props) {
         onCancelEdit={editIndex !== null ? handleCancelEdit : undefined}
       />
 
-      {/* ── Auth gate overlay ──────────────────────────────────────────────── */}
+      {/* ── Auth gate ────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {showAuthGate && (
           <AuthGate onClose={() => setShowAuthGate(false)} />

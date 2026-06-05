@@ -42,6 +42,7 @@ interface ComparisonRow {
 
 interface CompareResponse {
   coin: string;
+  priceUSD?: number | null;
   comparison: ComparisonRow[];
   availableChains: AvailableChain[];
 }
@@ -246,6 +247,23 @@ export default function FeeTable() {
             );
           })}
         </div>
+
+                {/* Live Coin Price */}
+        {fullData?.priceUSD !== undefined && (
+          <div className="flex items-center gap-3 mt-2 text-sm font-mono">
+            <span className="text-neutral-500 dark:text-neutral-400">Current Price:</span>
+            {fullData.priceUSD ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                ${fullData.priceUSD.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 8,
+                })}
+              </span>
+            ) : (
+              <span className="text-neutral-400">—</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Chain filter pills ────────────────────────────────────────────── */}

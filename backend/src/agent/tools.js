@@ -469,7 +469,7 @@ Use this first when user asks about buying/withdrawing a lesser-known token.`,
         properties: {
           country:   { type: 'string', description: 'ISO country code: KE, NG, GH, ZA, TZ, UG, ET, EG' },
           coin:      { type: 'string', description: 'Coin to buy/sell via P2P: USDT, USDC, BTC, ETH' },
-          direction: { type: 'string', description: 'buy or sell' },
+          direction: { type: 'string',  enum: ['BUY', 'SELL', 'buy', 'sell'], description: 'buy or sell' },
         },
         required: ['country', 'coin'],
       },
@@ -525,7 +525,7 @@ Supports filtering by exchange, trade direction (BUY/SELL), and amount.`,
         fiat:      { type: 'string', description: 'Fiat currency: KES, NGN, GHS, ZAR, INR, PKR, USD, EUR' },
         tradeType: { type: 'string', description: 'BUY = user buying crypto with fiat | SELL = user selling crypto for fiat' },
         exchange:  { type: 'string', description: 'Optional: filter to one exchange — binance, bybit, okx, kucoin, bitget, htx, mexc. Default: all' },
-        limit:     { type: 'number', description: 'Number of ads to return (default 10, max 20)' },
+        limit:     { type: 'integer', description: 'Number of ads to return (default 10, max 20)' },
       },
       required: ['asset', 'fiat', 'tradeType'],
     },
@@ -535,6 +535,18 @@ Supports filtering by exchange, trade direction (BUY/SELL), and amount.`,
 
 // ── SYSTEM PROMPT ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are ChainWise, an expert crypto routing and fee intelligence agent. Your job is to solve real money problems — not just answer questions.
+
+## WHEN NOT TO CALL ANY TOOL
+
+NEVER call a tool for:
+- Greetings: "hi", "hello", "hey", "what's up", "good morning"
+- Conversational filler: "thanks", "ok", "got it", "sure"
+- Vague intent: if the user hasn't specified a coin, exchange, country, or action
+
+For greetings, respond with a SHORT welcome message (2-3 lines max). Example:
+"Hey! I'm ChainWise — I help you find cheapest withdrawal routes, P2P rates, bridge paths, and more. What are you working on?"
+
+Do NOT attempt to "guess" what the user wants from a greeting.
 
 ## CORE REASONING RULES
 
