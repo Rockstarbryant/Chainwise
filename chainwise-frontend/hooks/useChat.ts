@@ -1,19 +1,12 @@
 'use client';
 
-/**
- * useChat.ts — with SSE streaming, keep-warm ping, and 👍/👎 feedback
- *
- * Key changes from original:
- * 1. _fetch replaced by _fetchStream — consumes SSE events from /api/agent/stream
- *    and updates the assistant message bubble in real time (delta events).
- * 2. Tool badges appear as tools are called (tool_start events), before the
- *    final text arrives — gives users immediate feedback.
- * 3. isStreaming flag exposed so UI can show a blinking cursor vs dots spinner.
- * 4. Keep-warm: pings /health every 4 min to prevent Render cold-start on free tier.
- * 5. sendFeedback(messageIndex, vote) — POST thumbs up/down to /api/feedback.
- * 6. Authenticated path uses /api/conversations/:id/message/stream when available,
- *    falls back to JSON endpoint if streaming fails.
- */
+// hooks/useChat.ts — v5.2
+//
+// Fixes:
+//  1. Always persist conversation + user message even if agent fails
+//  2. Generate conversation title even on error responses
+//  3. Better error handling and fallback content
+//  4. Improved robustness for new conversation creation
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from './useAuth';
@@ -21,70 +14,87 @@ import type { ChatMessage } from '@/lib/types';
 
 const ANON_LIMIT     = 5;
 const ANON_COUNT_KEY = 'cw_anon_count';
-const API            = process.env.NEXT_PUBLIC_API_URL || '';
+const API            = process.env.NEXT_PUBLIC_API_URL ?? '';
 
-// ── Keep-warm: ping /health every 4 min to prevent Render spin-down ─────────
+// ── Keep-warm ──────────────────────────────────────────────────────────────
 function useKeepWarm() {
   useEffect(() => {
+    if (!API) return;
     const ping = () => fetch(`${API}/health`, { method: 'GET' }).catch(() => {});
-    ping(); // immediate ping on mount
+    ping();
     const id = setInterval(ping, 4 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 }
 
+// ── Anon helpers ───────────────────────────────────────────────────────────
+function readAnonCount(): number {
+  return parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
+}
+function bumpAnonCount(): number {
+  const next = readAnonCount() + 1;
+  localStorage.setItem(ANON_COUNT_KEY, String(next));
+  return next;
+}
+
+// ── Hook ───────────────────────────────────────────────────────────────────
 export function useChat(conversationId?: string) {
   const { isAuthenticated, getToken } = useAuth();
   useKeepWarm();
 
-  const [messages,       setMessages]       = useState<ChatMessage[]>([]);
-  const [loading,        setLoading]        = useState(false);
-  const [isStreaming,    setIsStreaming]     = useState(false); // true while delta events arrive
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [showAuthGate,   setShowAuthGate]   = useState(false);
-  const [anonCount,      setAnonCount]      = useState(0);
+  const [messages,              setMessages]              = useState<ChatMessage[]>([]);
+  const [loading,               setLoading]               = useState(false);
+  const [isStreaming,           setIsStreaming]           = useState(false);
+  const [loadingHistory,        setLoadingHistory]        = useState(false);
+  const [error,                 setError]                 = useState<string | null>(null);
+  const [showAuthGate,          setShowAuthGate]          = useState(false);
+  const [anonCount,             setAnonCount]             = useState(0);
   const [createdConversationId, setCreatedConversationId] = useState<string | null>(null);
 
-  const lastUserTextRef  = useRef<string>('');
-  const abortRef         = useRef<AbortController | null>(null);
+  const sentToConvRef = useRef<Set<string>>(new Set());
+
+  const isAuthRef       = useRef(isAuthenticated);
+  const getTokenRef     = useRef(getToken);
+  const conversationRef = useRef(conversationId);
+
+  useEffect(() => { isAuthRef.current   = isAuthenticated; },  [isAuthenticated]);
+  useEffect(() => { getTokenRef.current = getToken; },         [getToken]);
+  useEffect(() => { conversationRef.current = conversationId; }, [conversationId]);
+
+  const lastUserTextRef = useRef<string>('');
+  const abortRef        = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const stored = parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
-    setAnonCount(stored);
+    setAnonCount(readAnonCount());
   }, []);
 
-  // ── Load existing conversation ─────────────────────────────────────────
+  // ── Load conversation history ────────────────────────────────────────────
   useEffect(() => {
     if (!conversationId || !isAuthenticated) {
       setMessages([]);
       return;
     }
+
     let cancelled = false;
+
     const load = async () => {
       setLoadingHistory(true);
       setMessages([]);
       try {
         const token = await getToken();
-        const res = await fetch(`${API}/api/conversations/${conversationId}`, {
+        const res   = await fetch(`${API}/api/conversations/${conversationId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (!cancelled && data.success && Array.isArray(data.data.messages)) {
           setMessages(
-            data.data.messages.map((m: {
-              role: 'user' | 'assistant';
-              content: string;
-              toolsUsed?: unknown[];
-              timestamp?: string;
-              feedback?: 'up' | 'down';
-            }) => ({
+            data.data.messages.map((m: any) => ({
               role:      m.role,
               content:   m.content,
               toolsUsed: m.toolsUsed,
               timestamp: m.timestamp ? new Date(m.timestamp) : undefined,
               feedback:  m.feedback,
-            }))
+            })),
           );
         }
       } catch {
@@ -93,16 +103,16 @@ export function useChat(conversationId?: string) {
         if (!cancelled) setLoadingHistory(false);
       }
     };
+
     load();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, isAuthenticated]);
 
-  // ── Create conversation ───────────────────────────────────────────────
+  // ── Create conversation ──────────────────────────────────────────────────
   const createConversation = useCallback(async (): Promise<string | null> => {
     try {
-      const token = await getToken();
-      const res = await fetch(`${API}/api/conversations`, {
+      const token = await getTokenRef.current();
+      const res   = await fetch(`${API}/api/conversations`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       });
@@ -111,239 +121,329 @@ export function useChat(conversationId?: string) {
     } catch {
       return null;
     }
-  }, [getToken]);
+  }, []);
 
-  // ── Core streaming fetch ──────────────────────────────────────────────
-  const _fetchStream = useCallback(async (
-    text: string,
-    historyForRequest: ChatMessage[],
-    displayMessages: ChatMessage[],
-    overrideConversationId?: string,
+  // ── Delete orphaned conversation ────────────────────────────────────────
+  const deleteConversation = useCallback(async (convId: string) => {
+    try {
+      const token = await getTokenRef.current();
+      await fetch(`${API}/api/conversations/${convId}`, {
+        method:  'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
+  // ── Persist streamed exchange to DB ─────────────────────────────────────
+  const persistToConversation = useCallback(async (
+    activeConvId:   string,
+    userText:       string,
+    assistantReply: string = '',
+    toolsUsed:      ChatMessage['toolsUsed'] = [],
   ) => {
+    try {
+      const token = await getTokenRef.current();
+      await fetch(`${API}/api/conversations/${activeConvId}/message`, {
+        method:  'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          content:        userText.trim(),
+          assistantReply: assistantReply.trim() || 'Something went wrong on our end. Please try again in a moment.',
+          toolsUsed:      toolsUsed ?? [],
+          skipAgentCall:  true,
+        }),
+      });
+    } catch (err) {
+      console.error('[persistToConversation] failed:', err);
+    }
+  }, []);
+
+  // ── SSE event processor ───────────────────────────────────────────────────
+  const processSSELine = useCallback((
+    line:            string,
+    streamedContent: { current: string },
+    streamedTools:   { current: ChatMessage['toolsUsed'] },
+    streamSucceeded: { current: boolean },
+  ): boolean => {
+    if (!line.startsWith('data: ')) return false;
+    const raw = line.slice(6).trim();
+    if (!raw || raw === '[DONE]') return false;
+
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(raw); } catch { return false; }
+
+    switch (event.type) {
+      case 'tool_start':
+        streamedTools.current = [
+          ...(streamedTools.current ?? []),
+          { tool: event.tool as string, input: event.input as Record<string, unknown>, result: null },
+        ];
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.isStreaming) next[next.length - 1] = { ...last, toolsUsed: streamedTools.current };
+          return next;
+        });
+        break;
+
+      case 'tool_end':
+        streamedTools.current = (streamedTools.current ?? []).map(t =>
+          t.tool === (event.tool as string) && t.result === null
+            ? { ...t, result: event.result as Record<string, unknown> }
+            : t,
+        );
+        break;
+
+      case 'delta':
+        streamedContent.current += event.content as string;
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.isStreaming) {
+            next[next.length - 1] = {
+              ...last,
+              content:   streamedContent.current,
+              toolsUsed: streamedTools.current,
+            };
+          }
+          return next;
+        });
+        break;
+
+      case 'done':
+        const finalTools = (event.toolsUsed as ChatMessage['toolsUsed']) ?? streamedTools.current;
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.isStreaming) {
+            next[next.length - 1] = {
+              ...last,
+              content:     streamedContent.current,
+              toolsUsed:   finalTools,
+              isStreaming: false,
+            };
+          }
+          return next;
+        });
+        streamedTools.current   = finalTools;
+        streamSucceeded.current = true;
+        return true;
+
+      case 'error':
+        setMessages(prev => [
+          ...prev.filter(m => !m.isStreaming),
+          {
+            role:      'assistant' as const,
+            content:   event.message as string,
+            timestamp: new Date(),
+            isError:   true,
+          },
+        ]);
+        streamSucceeded.current = true;
+        return true;
+    }
+    return false;
+  }, []);
+
+  // ── Core streaming fetch ─────────────────────────────────────────────────
+  const _fetchStream = useCallback(async (
+    text:              string,
+    historyForRequest: ChatMessage[],
+    displayMessages:   ChatMessage[],
+    overrideConvId?:   string,
+  ) => {
+    const authed       = isAuthRef.current;
+    const activeConvId = overrideConvId ?? conversationRef.current;
+
     setError(null);
-    setMessages(displayMessages);
     setLoading(true);
     setIsStreaming(false);
 
-    // Cancel any in-flight request
+    const placeholder: ChatMessage = {
+      role:        'assistant',
+      content:     '',
+      toolsUsed:   [],
+      timestamp:   new Date(),
+      isStreaming: true,
+    };
+    setMessages([...displayMessages, placeholder]);
+
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
 
-    // Placeholder assistant message that we'll update as deltas arrive
-    const assistantPlaceholder: ChatMessage = {
-      role:      'assistant',
-      content:   '',
-      toolsUsed: [],
-      timestamp: new Date(),
-      isStreaming: true,
-    };
-
-    setMessages(prev => [...prev.filter(m => !m.isError), assistantPlaceholder]);
+    const streamedContent:  { current: string }                   = { current: '' };
+    const streamedTools:    { current: ChatMessage['toolsUsed'] } = { current: [] };
+    const streamSucceeded:  { current: boolean }                  = { current: false };
 
     try {
-      const activeConvId = overrideConversationId ?? conversationId;
-      let streamUrl: string;
-      let headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      let body: string;
-
-      if (isAuthenticated && activeConvId) {
-        const token = await getToken();
-        // Try the authenticated streaming endpoint first
-        streamUrl = `${API}/api/conversations/${activeConvId}/message/stream`;
-        headers['Authorization'] = `Bearer ${token}`;
-        body = JSON.stringify({ content: text.trim() });
-      } else {
-        streamUrl = `${API}/api/agent/stream`;
-        body = JSON.stringify({
+      const res = await fetch(`${API}/api/agent/stream`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
           messages: historyForRequest.map(m => ({ role: m.role, content: m.content })),
-        });
-      }
-
-      const res = await fetch(streamUrl, {
-        method: 'POST',
-        headers,
-        body,
+        }),
         signal: abort.signal,
       });
 
-      if (!res.ok || !res.body) {
-        // Streaming endpoint not available — fall back to JSON
-        throw new Error(`Stream unavailable: ${res.status}`);
-      }
+      if (!res.ok || !res.body) throw new Error(`Stream returned ${res.status}`);
 
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let   buffer  = '';
-      let   content = '';
-      let   toolsUsed: ChatMessage['toolsUsed'] = [];
 
       setIsStreaming(true);
 
-      while (true) {
+      readLoop: while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
         if (abort.signal.aborted) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+        if (value) buffer += decoder.decode(value, { stream: !done });
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
+        const eventBlocks = buffer.split('\n\n');
+        buffer = eventBlocks.pop() ?? '';
 
-          let event: Record<string, unknown>;
-          try { event = JSON.parse(raw); } catch { continue; }
-
-          switch (event.type) {
-
-            case 'tool_start':
-              // Add tool badge immediately so user sees activity
-              toolsUsed = [...(toolsUsed || []), {
-                tool: event.tool as string,
-                input: event.input as Record<string, unknown>,
-                result: null,
-              }];
-              setMessages(prev => {
-                const next = [...prev];
-                const last = next[next.length - 1];
-                if (last?.isStreaming) {
-                  next[next.length - 1] = { ...last, toolsUsed };
-                }
-                return next;
-              });
-              break;
-
-            case 'tool_end': {
-              const result = event.result as Record<string, unknown> | null;
-              // Update the matching tool entry with its result
-              toolsUsed = toolsUsed?.map(t =>
-                t.tool === (event.tool as string) && t.result === null
-                  ? { ...t, result }
-                  : t
-              );
-              break;
+        for (const block of eventBlocks) {
+          for (const line of block.split('\n')) {
+            if (processSSELine(line.trim(), streamedContent, streamedTools, streamSucceeded)) {
+              break readLoop;
             }
-
-            case 'delta':
-              content += event.content as string;
-              setMessages(prev => {
-                const next = [...prev];
-                const last = next[next.length - 1];
-                if (last?.isStreaming) {
-                  next[next.length - 1] = { ...last, content, toolsUsed };
-                }
-                return next;
-              });
-              break;
-
-            case 'done':
-              setMessages(prev => {
-                const next = [...prev];
-                const last = next[next.length - 1];
-                if (last?.isStreaming) {
-                  next[next.length - 1] = {
-                    ...last,
-                    content,
-                    toolsUsed: event.toolsUsed as ChatMessage['toolsUsed'] ?? toolsUsed,
-                    isStreaming: false,
-                  };
-                }
-                return next;
-              });
-              break;
-
-            case 'error':
-              setMessages(prev => {
-                const next = [...prev.filter(m => !m.isStreaming)];
-                next.push({
-                  role:       'assistant',
-                  content:    event.message as string,
-                  timestamp:  new Date(),
-                  isError:    true,
-                });
-                return next;
-              });
-              break;
           }
         }
-      }
 
-      // Handle anon count
-      if (!isAuthenticated) {
-        const storedCount = parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
-        const newCount = storedCount + 1;
-        localStorage.setItem(ANON_COUNT_KEY, newCount.toString());
-        setAnonCount(newCount);
-        if (newCount >= ANON_LIMIT) {
-          setTimeout(() => setShowAuthGate(true), 1500);
+        if (done) {
+          if (buffer.trim()) {
+            for (const line of buffer.split('\n')) {
+              if (processSSELine(line.trim(), streamedContent, streamedTools, streamSucceeded)) break;
+            }
+          }
+          if (!streamSucceeded.current && streamedContent.current) {
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.isStreaming) {
+                next[next.length - 1] = {
+                  ...last,
+                  content:     streamedContent.current,
+                  toolsUsed:   streamedTools.current,
+                  isStreaming: false,
+                };
+              }
+              return next;
+            });
+            streamSucceeded.current = true;
+          }
+          break;
         }
       }
+    } catch (streamErr) {
+      if ((streamErr as Error).name === 'AbortError') {
+        setLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+      setMessages(displayMessages);
+    }
 
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return; // user navigated away
-
-      // ── Fallback: try the non-streaming JSON endpoint ──────────────────
+    // ── JSON fallback ─────────────────────────────────────────────────────
+    if (!streamSucceeded.current) {
       try {
-        const activeConvId = overrideConversationId ?? conversationId;
-        let res: Response;
-
-        if (isAuthenticated && activeConvId) {
-          const token = await getToken();
-          res = await fetch(`${API}/api/conversations/${activeConvId}/message`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body:    JSON.stringify({ content: text.trim() }),
-          });
-        } else {
-          res = await fetch(`${API}/api/agent`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({
-              messages: historyForRequest.map(m => ({ role: m.role, content: m.content })),
-            }),
-          });
-        }
-
+        const res = await fetch(`${API}/api/agent`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            messages: historyForRequest.map(m => ({ role: m.role, content: m.content })),
+          }),
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error?.message || 'Request failed');
+
+        streamedContent.current = data.data.message;
+        streamedTools.current   = data.data.toolsUsed ?? [];
 
         setMessages(prev => [
           ...prev.filter(m => !m.isStreaming && !m.isError),
           {
-            role:      'assistant',
-            content:   data.data.message,
-            toolsUsed: data.data.toolsUsed,
+            role:      'assistant' as const,
+            content:   streamedContent.current,
+            toolsUsed: streamedTools.current,
             timestamp: new Date(),
           },
         ]);
+        streamSucceeded.current = true;
       } catch (fallbackErr) {
-        const message = fallbackErr instanceof Error ? fallbackErr.message : 'Unknown error';
-        setError(message);
+        const msg = fallbackErr instanceof Error ? fallbackErr.message : 'Unknown error';
+        setError(msg);
         setMessages(prev => [
           ...prev.filter(m => !m.isStreaming && !m.isError),
-          { role: 'assistant', content: `Error: ${message}`, timestamp: new Date(), isError: true },
+          {
+            role:      'assistant' as const,
+            content:   'Something went wrong on our end. Please try again in a moment.',
+            timestamp: new Date(),
+            isError:   true,
+          },
         ]);
       }
-
-    } finally {
-      setLoading(false);
-      setIsStreaming(false);
     }
-  }, [messages, isAuthenticated, conversationId, anonCount, getToken]);
 
-  // ── send ──────────────────────────────────────────────────────────────
+    // ── Post-stream actions ───────────────────────────────────────────────
+    const succeeded = streamSucceeded.current;
+    let finalContent = streamedContent.current;
+    let finalTools   = streamedTools.current;
+
+    if (!succeeded || !finalContent?.trim()) {
+      finalContent = 'Something went wrong on our end. Please try again in a moment.';
+      finalTools   = [];
+    }
+
+    if (authed && activeConvId) {
+      sentToConvRef.current.add(activeConvId);
+
+      await persistToConversation(
+        activeConvId,
+        text,
+        finalContent,
+        finalTools
+      );
+
+      if (overrideConvId) {
+        setCreatedConversationId(overrideConvId);
+      }
+    } 
+    // Optional: clean up truly failed new conversations (rare now)
+    else if (overrideConvId && !conversationRef.current && !succeeded) {
+      deleteConversation(overrideConvId);
+    }
+
+    // ── Anon gate ─────────────────────────────────────────────────────────
+    if (!authed && succeeded) {
+      const newCount = bumpAnonCount();
+      setAnonCount(newCount);
+      if (newCount >= ANON_LIMIT) {
+        setTimeout(() => setShowAuthGate(true), 1500);
+      }
+    }
+
+    setLoading(false);
+    setIsStreaming(false);
+  }, [processSSELine, persistToConversation, deleteConversation]);
+
+  // ── send ─────────────────────────────────────────────────────────────────
   const send = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
 
-    if (!isAuthenticated) {
-      const count = parseInt(localStorage.getItem(ANON_COUNT_KEY) || '0', 10);
-      if (count >= ANON_LIMIT) { setShowAuthGate(true); return; }
+    if (!isAuthenticated && readAnonCount() >= ANON_LIMIT) {
+      setShowAuthGate(true);
+      return;
     }
 
     lastUserTextRef.current = text.trim();
+
     const userMsg: ChatMessage = { role: 'user', content: text.trim(), timestamp: new Date() };
     const updated = [...messages, userMsg];
 
@@ -351,41 +451,42 @@ export function useChat(conversationId?: string) {
       const newId = await createConversation();
       if (newId) {
         await _fetchStream(text, updated, updated, newId);
-        setCreatedConversationId(newId);
       } else {
         await _fetchStream(text, updated, updated);
       }
       return;
     }
 
+    if (conversationId) sentToConvRef.current.add(conversationId);
     await _fetchStream(text, updated, updated);
   }, [messages, loading, isAuthenticated, conversationId, createConversation, _fetchStream]);
 
-  // ── retry ─────────────────────────────────────────────────────────────
+  // ── retry ────────────────────────────────────────────────────────────────
   const retry = useCallback(async () => {
     if (loading) return;
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return;
-    const idx = messages.lastIndexOf(lastUserMsg);
-    const trimmed = messages.slice(0, idx + 1);
-    await _fetchStream(lastUserMsg.content, trimmed, trimmed);
+    const idx     = messages.lastIndexOf(lastUserMsg);
+    const history = messages.slice(0, idx + 1);
+    const display = history.filter(m => !m.isError);
+    await _fetchStream(lastUserMsg.content, history, display);
   }, [messages, loading, _fetchStream]);
 
-  // ── editAndResend ─────────────────────────────────────────────────────
+  // ── editAndResend ────────────────────────────────────────────────────────
   const editAndResend = useCallback(async (newText: string, messageIndex: number) => {
     if (!newText.trim() || loading) return;
     lastUserTextRef.current = newText.trim();
-    const historyUpToEdit = messages.slice(0, messageIndex);
+    const history    = messages.slice(0, messageIndex);
     const editedMsg: ChatMessage = { role: 'user', content: newText.trim(), timestamp: new Date() };
-    const newHistory = [...historyUpToEdit, editedMsg];
+    const newHistory = [...history, editedMsg];
     await _fetchStream(newText, newHistory, newHistory);
   }, [messages, loading, _fetchStream]);
 
-  // ── sendFeedback ──────────────────────────────────────────────────────
+  // ── sendFeedback ─────────────────────────────────────────────────────────
   const sendFeedback = useCallback(async (messageIndex: number, vote: 'up' | 'down') => {
-    // Optimistic update
-    setMessages(prev => prev.map((m, i) => i === messageIndex ? { ...m, feedback: vote } : m));
-
+    setMessages(prev =>
+      prev.map((m, i) => i === messageIndex ? { ...m, feedback: vote } : m),
+    );
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (isAuthenticated) {
@@ -393,36 +494,52 @@ export function useChat(conversationId?: string) {
         headers['Authorization'] = `Bearer ${token}`;
       }
       await fetch(`${API}/api/feedback`, {
-        method: 'POST',
+        method:  'POST',
         headers,
         body: JSON.stringify({
           conversationId,
           messageIndex,
           vote,
-          message: messages[messageIndex]?.content?.slice(0, 200),
+          message:   messages[messageIndex]?.content?.slice(0, 200),
           toolsUsed: messages[messageIndex]?.toolsUsed?.map(t => t.tool),
         }),
       });
     } catch {
-      // Non-fatal — feedback is best-effort
+      // non-fatal
     }
   }, [messages, conversationId, isAuthenticated, getToken]);
 
-  // ── clear ─────────────────────────────────────────────────────────────
+  // ── clear ────────────────────────────────────────────────────────────────
   const clear = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
     setError(null);
     setCreatedConversationId(null);
+    sentToConvRef.current.delete('new');
     lastUserTextRef.current = '';
   }, []);
 
+  const hasSentMessage =
+    sentToConvRef.current.has(conversationId ?? 'new') ||
+    sentToConvRef.current.has('new');
+
   return {
-    messages, loading, isStreaming, loadingHistory, error,
-    send, retry, editAndResend, clear, sendFeedback,
-    lastUserText: lastUserTextRef.current,
-    showAuthGate, setShowAuthGate,
-    anonCount, anonLimit: ANON_LIMIT,
+    messages,
+    loading,
+    isStreaming,
+    loadingHistory,
+    error,
+    send,
+    retry,
+    editAndResend,
+    clear,
+    sendFeedback,
+    lastUserText:  lastUserTextRef.current,
+    showAuthGate,
+    setShowAuthGate,
+    anonCount,
+    anonLimit:     ANON_LIMIT,
     createdConversationId,
+    hasSentMessage,
   };
 }

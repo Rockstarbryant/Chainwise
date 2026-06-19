@@ -1,9 +1,11 @@
 // controllers/conversation.controller.js
+
 const Conversation = require('../models/Conversation');
 const { success, error: sendError } = require('../../utils/response');
-const { runAgent, runAgentStream } = require('../agent/loop');
+const { runAgent, runAgentStream }  = require('../agent/loop');
+const logger = require('../../utils/logger');
 
-// GET /api/conversations
+// ── GET /api/conversations ─────────────────────────────────────────────────
 const list = async (req, res, next) => {
   try {
     const conversations = await Conversation.find(
@@ -14,7 +16,7 @@ const list = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// POST /api/conversations
+// ── POST /api/conversations ────────────────────────────────────────────────
 const create = async (req, res, next) => {
   try {
     const conversation = await Conversation.create({ userId: req.userId, messages: [] });
@@ -22,118 +24,229 @@ const create = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// GET /api/conversations/:id
+// ── GET /api/conversations/:id ─────────────────────────────────────────────
 const getOne = async (req, res, next) => {
   try {
-    const conversation = await Conversation.findOne({ _id: req.params.id, userId: req.userId }).lean();
+    const conversation = await Conversation.findOne({
+      _id: req.params.id,
+      userId: req.userId,
+    }).lean();
     if (!conversation) return sendError(res, 'Conversation not found', 404);
     return success(res, conversation);
   } catch (err) { next(err); }
 };
 
-// POST /api/conversations/:id/message  — non-streaming (kept for backwards compat)
+// ── POST /api/conversations/:id/message ───────────────────────────────────
+//
+// Two modes:
+//
+//  A) skipAgentCall=true  (streaming persist path)
+//     useChat.ts already streamed via /api/agent/stream and has the full
+//     reply. Save both messages and return — no Groq call made.
+//     Body: { content, assistantReply, toolsUsed, skipAgentCall: true }
+//
+//  B) Normal (legacy JSON / fallback path)
+//     Runs the agent synchronously and saves both messages.
+//     Body: { content }
+//
 const sendMessage = async (req, res, next) => {
   try {
-    const { content } = req.body;
+    const { content, assistantReply, toolsUsed, skipAgentCall } = req.body;
+
     if (!content?.trim()) return sendError(res, 'content is required', 400);
 
-    const conversation = await Conversation.findOne({ _id: req.params.id, userId: req.userId });
-    if (!conversation) return sendError(res, 'Conversation not found', 404);
+    // Use findById + verify ownership separately so we get a full Mongoose
+    // document (not lean) — required for the pre-save hook to fire.
+    const conversation = await Conversation.findOne({
+      _id:    req.params.id,
+      userId: req.userId,
+    });
 
-    conversation.messages.push({ role: 'user', content: content.trim() });
+    if (!conversation) {
+      logger.warn(`[conv/message] Not found or wrong user — id=${req.params.id} userId=${req.userId}`);
+      return sendError(res, 'Conversation not found', 404);
+    }
+
+    // ── Mode A: streaming already ran — just persist ─────────────────────
+    if (skipAgentCall) {
+      if (!assistantReply?.trim()) {
+        return sendError(res, 'assistantReply is required when skipAgentCall=true', 400);
+      }
+
+      const isFirstExchange = conversation.messages.length === 0;
+
+      conversation.messages.push(
+        { role: 'user',      content: content.trim(),      timestamp: new Date() },
+        { role: 'assistant', content: assistantReply.trim(), toolsUsed: toolsUsed ?? [], timestamp: new Date() },
+      );
+
+      // Safety net: if somehow the pre-save hook won't catch it
+      // (e.g. title was already mutated to something other than the default),
+      // force-set it from the user message on the very first exchange.
+      if (isFirstExchange && conversation.title === 'New Conversation') {
+        const trimmed = content.trim();
+        conversation.title = trimmed.slice(0, 60) + (trimmed.length > 60 ? '...' : '');
+        logger.debug(`[conv/message] Title set explicitly: "${conversation.title}"`);
+      }
+
+      await conversation.save(); // pre-save hook fires here → sets title + messageCount + lastActive
+
+      logger.info(
+        `[conv/message] skipAgentCall persist — id=${conversation._id} ` +
+        `msgs=${conversation.messages.length} title="${conversation.title}"`
+      );
+
+      return success(res, {
+        message:        assistantReply,
+        toolsUsed:      toolsUsed ?? [],
+        conversationId: conversation._id,
+        title:          conversation.title,
+      });
+    }
+
+    // ── Mode B: run agent synchronously (legacy / fallback) ──────────────
+    const isFirstExchange = conversation.messages.length === 0;
+
+    conversation.messages.push({ role: 'user', content: content.trim(), timestamp: new Date() });
+
+    // Safety net for title (same logic as Mode A)
+    if (isFirstExchange && conversation.title === 'New Conversation') {
+      const trimmed = content.trim();
+      conversation.title = trimmed.slice(0, 60) + (trimmed.length > 60 ? '...' : '');
+    }
 
     const agentMessages = conversation.messages.map(m => ({ role: m.role, content: m.content }));
-    const result = await runAgent(agentMessages);
+    const result        = await runAgent(agentMessages);
 
-    conversation.messages.push({ role: 'assistant', content: result.message, toolsUsed: result.toolsUsed });
+    conversation.messages.push({
+      role:      'assistant',
+      content:   result.message,
+      toolsUsed: result.toolsUsed,
+      timestamp: new Date(),
+    });
+
     await conversation.save();
+
+    logger.info(
+      `[conv/message] agent persist — id=${conversation._id} ` +
+      `msgs=${conversation.messages.length} title="${conversation.title}"`
+    );
 
     return success(res, {
       message:        result.message,
       toolsUsed:      result.toolsUsed,
       conversationId: conversation._id,
-      usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+      title:          conversation.title,
+      usage: {
+        inputTokens:  result.inputTokens,
+        outputTokens: result.outputTokens,
+      },
     });
   } catch (err) { next(err); }
 };
 
-// POST /api/conversations/:id/stream  — SSE streaming
+// ── POST /api/conversations/:id/stream  (SSE) ─────────────────────────────
+//
+// Direct SSE streaming from conversation context.
+// Available as an alternative to the stateless /api/agent/stream path.
 //
 // Flow:
 //   1. Validate + load conversation.
-//   2. Persist the user message immediately (so page reloads show it).
-//   3. Hand off to runAgentStream — it owns the SSE response lifecycle.
-//   4. Listen for the 'done' event on the stream's finish to persist the
-//      assistant reply *after* the stream ends cleanly.
-//
-// The client should listen for { type:'done', message, toolsUsed } and save
-// the assistant content into its local state.
+//   2. Persist user message immediately.
+//   3. Stream via runAgentStream.
+//   4. Intercept 'done' event to persist the assistant reply.
 //
 const sendMessageStream = async (req, res, next) => {
   try {
     const { content } = req.body;
     if (!content?.trim()) return sendError(res, 'content is required', 400);
 
-    const conversation = await Conversation.findOne({ _id: req.params.id, userId: req.userId });
+    const conversation = await Conversation.findOne({
+      _id:    req.params.id,
+      userId: req.userId,
+    });
     if (!conversation) return sendError(res, 'Conversation not found', 404);
 
-    // Persist user message before streaming starts
-    conversation.messages.push({ role: 'user', content: content.trim() });
+    const isFirstExchange = conversation.messages.length === 0;
+
+    // Persist user message before streaming so a page reload shows it
+    conversation.messages.push({ role: 'user', content: content.trim(), timestamp: new Date() });
+
+    // Set title on first message (safety net alongside pre-save hook)
+    if (isFirstExchange && conversation.title === 'New Conversation') {
+      const trimmed = content.trim();
+      conversation.title = trimmed.slice(0, 60) + (trimmed.length > 60 ? '...' : '');
+    }
+
     await conversation.save();
 
-    // Build message history for the agent
     const agentMessages = conversation.messages.map(m => ({ role: m.role, content: m.content }));
 
-    // We need to capture what the agent produces so we can persist it.
-    // Wrap res.write to intercept the 'done' event payload.
-    let donePayload = null;
-    const originalWrite = res.write.bind(res);
-    res.write = (chunk, ...rest) => {
-      // Intercept SSE lines to find the 'done' event
-      if (typeof chunk === 'string' && chunk.startsWith('data:')) {
-        try {
-          const json = JSON.parse(chunk.slice(5).trim());
-          if (json.type === 'done') donePayload = json;
-        } catch {}
-      } else if (Buffer.isBuffer(chunk)) {
-        try {
-          const str = chunk.toString('utf8');
-          if (str.startsWith('data:')) {
-            const json = JSON.parse(str.slice(5).trim());
-            if (json.type === 'done') donePayload = json;
-          }
-        } catch {}
+    // ── SSE headers ────────────────────────────────────────────────────
+    res.setHeader('Content-Type',      'text/event-stream');
+    res.setHeader('Cache-Control',     'no-cache, no-transform');
+    res.setHeader('Connection',        'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) res.write(': ping\n\n');
+    }, 15_000);
+
+    req.on('close', () => clearInterval(keepAlive));
+
+    let finalMessage = '';
+    let finalTools   = [];
+    let gotDone      = false;
+
+    const emit = (data) => {
+      if (res.writableEnded) return;
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (typeof res.flush === 'function') res.flush();
+
+      if (data.type === 'done') {
+        finalMessage = data.message  || '';
+        finalTools   = data.toolsUsed || [];
+        gotDone      = true;
       }
-      return originalWrite(chunk, ...rest);
     };
 
-    // When the SSE stream ends, persist the assistant message
-    res.on('finish', async () => {
-      if (!donePayload) return;
-      try {
-        // Reload to avoid stale-save conflicts (user message already saved above)
-        const fresh = await Conversation.findById(conversation._id);
-        if (!fresh) return;
-        fresh.messages.push({
-          role:      'assistant',
-          content:   donePayload.message || '',
-          toolsUsed: donePayload.toolsUsed || [],
-        });
-        await fresh.save();
-      } catch (err) {
-        // Non-fatal — message may be missing from history but the stream succeeded
-        const logger = require('../../utils/logger');
-        logger.error('[conv/stream] Failed to persist assistant message:', err.message);
+    try {
+      for await (const event of runAgentStream(agentMessages)) {
+        emit(event);
+        if (event.type === 'done' || event.type === 'error') break;
       }
-    });
+    } catch (streamErr) {
+      logger.error('[conv/stream] generator error:', streamErr);
+      emit({ type: 'error', message: '⚠️ Something went wrong. Please try again.', errorType: 'unknown' });
+    } finally {
+      clearInterval(keepAlive);
 
-    await runAgentStream(agentMessages, res);
+      if (gotDone && finalMessage) {
+        try {
+          const fresh = await Conversation.findById(conversation._id);
+          if (fresh) {
+            fresh.messages.push({
+              role:      'assistant',
+              content:   finalMessage,
+              toolsUsed: finalTools,
+              timestamp: new Date(),
+            });
+            await fresh.save();
+            logger.info(`[conv/stream] assistant persisted — id=${fresh._id} title="${fresh.title}"`);
+          }
+        } catch (saveErr) {
+          logger.error('[conv/stream] Failed to persist assistant message:', saveErr);
+        }
+      }
+
+      if (!res.writableEnded) res.end();
+    }
 
   } catch (err) {
     if (!res.headersSent) {
       next(err);
     } else {
-      const logger = require('../../utils/logger');
       logger.error('[conv/stream] Unhandled error after headers sent:', err);
       try {
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'Unexpected server error', errorType: 'unknown' })}\n\n`);
@@ -143,12 +256,12 @@ const sendMessageStream = async (req, res, next) => {
   }
 };
 
-// DELETE /api/conversations/:id
+// ── DELETE /api/conversations/:id ─────────────────────────────────────────
 const remove = async (req, res, next) => {
   try {
     await Conversation.findOneAndUpdate(
       { _id: req.params.id, userId: req.userId },
-      { isActive: false }
+      { isActive: false },
     );
     return success(res, { deleted: true });
   } catch (err) { next(err); }

@@ -115,6 +115,15 @@ const start = async () => {
     logger.info(`⚡ ChainWise API running on http://localhost:${PORT}`);
   });
 
+  // Validate required env vars at startup — crash loudly if missing
+const REQUIRED_ENV = ['GROQ_API_KEY', 'MONGODB_URI', 'ADMIN_EMAILS', 'API_KEY_ENCRYPTION_SECRET', 'TELEGRAM_BOT_TOKEN', 'TWITTER_BEARER_TOKEN', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'TELEGRAM_RATE_LIMIT'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  logger.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
+  process.exit(1);
+}
+logger.info('✅ Environment variables validated');
+
   waitForRedisAndStartWorker();
   const { startGiveawayScanCron } = require('./jobs/giveawayScan');
   startGiveawayScanCron();

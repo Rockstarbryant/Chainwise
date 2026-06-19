@@ -28,19 +28,19 @@ export default function ChatWindow({ conversationId }: Props) {
     showAuthGate, setShowAuthGate,
     anonCount, anonLimit,
     createdConversationId,
+    hasSentMessage,           // ← now comes from hook (ref-backed, survives remounts)
   } = useChat(conversationId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [editIndex,      setEditIndex]      = useState<number | null>(null);
-  const [editPrefill,    setEditPrefill]    = useState<string | undefined>(undefined);
-  const [hasSentMessage, setHasSentMessage] = useState(false);
+  const [editIndex,   setEditIndex]   = useState<number | null>(null);
+  const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
 
   /* ── Auto-scroll ─────────────────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  /* ── Redirect after auto-create ──────────────────────────────────────── */
+  /* ── Redirect after stream succeeds on a new conversation ────────────── */
   useEffect(() => {
     if (!createdConversationId) return;
     triggerHistoryRefresh();
@@ -58,13 +58,6 @@ export default function ChatWindow({ conversationId }: Props) {
     }
   }, [loading, conversationId, triggerHistoryRefresh]);
 
-  /* ── Reset hasSentMessage on fresh /chat ─────────────────────────────── */
-  useEffect(() => {
-    if (!conversationId && messages.length === 0 && !loading) {
-      setHasSentMessage(false);
-    }
-  }, [conversationId, messages.length, loading]);
-
   /* ── Handlers ────────────────────────────────────────────────────────── */
   const handleEdit = (index: number) => {
     const msg = messages[index];
@@ -79,7 +72,6 @@ export default function ChatWindow({ conversationId }: Props) {
   };
 
   const handleSendOrEdit = (text: string) => {
-    setHasSentMessage(true);
     if (editIndex !== null) {
       editAndResend(text, editIndex);
       setEditIndex(null);
@@ -91,7 +83,6 @@ export default function ChatWindow({ conversationId }: Props) {
 
   const handleNewChat = useCallback(() => {
     handleCancelEdit();
-    setHasSentMessage(false);
     clear();
     router.push('/chat');
   }, [clear, router]);
@@ -101,13 +92,19 @@ export default function ChatWindow({ conversationId }: Props) {
     -1
   );
 
+  // Hide suggested prompts if:
+  // - history is loading
+  // - we have messages
+  // - user has already sent a message in this session (ref survives redirect)
+  // - still loading a response
+  // - we just created a conv and are about to redirect
   const showSuggestedPrompts =
     !loadingHistory &&
     messages.length === 0 &&
     !hasSentMessage &&
-    !loading;
+    !loading &&
+    !createdConversationId;
 
-  // Show typing indicator only when loading but NO streaming message exists yet
   const hasStreamingMessage = messages.some(m => m.isStreaming);
   const showTypingIndicator = loading && !hasStreamingMessage;
 
@@ -149,7 +146,6 @@ export default function ChatWindow({ conversationId }: Props) {
           {/* Empty state */}
           {showSuggestedPrompts && (
             <SuggestedPrompts onSelect={(prompt) => {
-              setHasSentMessage(true);
               send(prompt);
             }} />
           )}
@@ -175,7 +171,7 @@ export default function ChatWindow({ conversationId }: Props) {
             ))}
           </AnimatePresence>
 
-          {/* Typing indicator — only shown before the streaming message appears */}
+          {/* Typing indicator */}
           {showTypingIndicator && (
             <motion.div
               className="flex gap-3 sm:gap-4 items-start"
