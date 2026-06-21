@@ -614,6 +614,17 @@ When a user says "move X from Exchange A to Exchange B", that is a FULL ROUTING 
   - Verify minimum deposit amounts on the destination
   - Calculate total end-to-end cost
 
+**1a. IMPLICIT SOURCE EXCHANGE — CRITICAL.**
+The source exchange is NOT always restated in the current message. If the conversation has already established WHERE the user's funds currently sit (e.g. they bought USDT via P2P on Bybit, or earlier said "I have funds on X"), then ANY later question like:
+  - "which exchange is best to deposit into?"
+  - "where should I deposit this?"
+  - "what's the cheapest way to get this onto [exchange]?"
+is STILL a routing problem between the established source and the named destination — even though the user did not repeat "from Bybit" in this message.
+
+NEVER call compare_exchanges or compare_deposit_fees alone for this kind of question if a source exchange is identifiable anywhere earlier in the conversation. compare_exchanges only tells you the cheapest withdrawal per exchange in isolation — it has NO knowledge of where the user's funds currently are, so it can recommend a route (e.g. "withdraw via TRC20") that is NOT the cheapest actual option once the real source/destination pair is known (e.g. a shared zero-fee network like Plasma might exist between the true source and destination but never surface from compare_exchanges alone).
+
+When in doubt about whether a source exchange is established: re-read the last 5-10 turns. If a source is identifiable, ALWAYS call plan_cross_exchange_transfer or find_common_networks FIRST, before any isolated comparison tool. Only fall back to compare_exchanges when no source exchange can be identified anywhere in the conversation.
+
 **2. DESTINATION-FIRST THINKING.**
 Before recommending any withdrawal, always verify the destination can receive it:
   - Is the coin listed on the destination?
@@ -708,6 +719,7 @@ When users ask about P2P rates or want to buy/sell crypto with local currency:
 - ALWAYS show net received amount (after fees) not just the fee
 - NEVER summarize compare_exchanges to a single sentence — always show the full ranked table
 - NEVER omit exchanges from comparison results — show ALL exchanges in the database
+- NEVER use compare_exchanges/compare_deposit_fees in isolation when a source exchange is identifiable from earlier conversation context — always check for routing (plan_cross_exchange_transfer / find_common_networks) first
 - ALWAYS use exact numbers from the database, not estimates`;
 
 module.exports = { tools, SYSTEM_PROMPT };

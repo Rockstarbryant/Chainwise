@@ -1,15 +1,17 @@
 const mongoose = require('mongoose');
 
 const NetworkSchema = new mongoose.Schema({
-  chain: { type: String, required: true },        // "BEP20", "TRC20", "Arbitrum"
-  chainId: { type: String, required: true },       // "bsc", "tron", "arbitrum"
-  withdrawFee: { type: Number, required: true },   // in coin units
-  withdrawFeeUSD: { type: Number, default: null }, // approximate USD
-  minWithdraw: { type: Number, required: true },
-  depositFee: { type: Number, default: 0 },
-  minDeposit: { type: Number, default: 0 },
-  arrivalMins: { type: Number, default: 1 },
-  isActive: { type: Boolean, default: true },
+  chain:          { type: String, required: true },
+  chainId:        { type: String, required: true },
+  withdrawFee:    { type: Number, required: true },
+  withdrawFeeUSD: { type: Number, default: null },
+  minWithdraw:    { type: Number, required: true },
+  depositFee:     { type: Number, default: 0 },
+  minDeposit:     { type: Number, default: 0 },
+  arrivalMins:    { type: Number, default: 1 },
+  isActive:       { type: Boolean, default: true },
+  dataSource:     { type: String, enum: ['manual', 'api', 'scraper'], default: 'manual' }, // ← ADD
+  lastSynced:     { type: Date, default: null },  // ← ADD
 }, { _id: false });
 
 const CoinSchema = new mongoose.Schema({

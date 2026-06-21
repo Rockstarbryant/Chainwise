@@ -110,7 +110,7 @@ async function runP2PRefresh() {
 
 // ─── Cron entrypoint ─────────────────────────────────────────────────────
 function startP2PCron() {
-  cron.schedule('*/15 * * * *', () => {
+  cron.schedule('*/60 * * * *', () => {
     runP2PRefresh().catch(err =>
       logger.error(`[p2pCron] Unhandled error: ${err.stack || err.message}`)
     );
@@ -122,7 +122,7 @@ function startP2PCron() {
     );
   }, 5000);
 
-  logger.info('[p2pCron] P2P refresh cron started (every 15 minutes)');
+  logger.info('[p2pCron] P2P refresh cron started (every 60 minutes)');
 }
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────

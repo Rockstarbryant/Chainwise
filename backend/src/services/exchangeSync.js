@@ -398,30 +398,35 @@ async function fetchBitmartFeeData(apiKey, apiSecret, memo) {
   const symbolMap = {};
 
   for (const item of currencies) {
-    if (!item.withdraw_enabled && !item.deposit_enabled) continue;
+  if (!item.withdraw_enabled && !item.deposit_enabled) continue;
 
-    // currency field is like "USDT-ERC20" or "BTC-Bitcoin"
-    const parts   = item.currency.split('-');
-    const symbol  = parts[0].toUpperCase();
-    const chainId = parts.slice(1).join('-').toLowerCase();
+  const parts   = item.currency.split('-');
+  const symbol  = parts[0].toUpperCase();
+  const chainId = parts.slice(1).join('-').toLowerCase().trim();
 
-    const network = {
-      chain:          item.currency,       // e.g. "USDT-ERC20"
-      chainId,                             // e.g. "erc20"
-      withdrawFee:    parseFloat(item.withdraw_minfee)  || 0,
-      withdrawFeeUSD: null,
-      minWithdraw:    parseFloat(item.withdraw_minsize) || 0,
-      minDeposit:     parseFloat(item.recharge_minsize) || 0,
-      depositFee:     0,
-      arrivalMins:    estimateArrivalMins(chainId),
-      isActive:       item.withdraw_enabled || item.deposit_enabled,
-      dataSource:     'api',
-      lastSynced:     new Date(),
-    };
-
-    if (!symbolMap[symbol]) symbolMap[symbol] = [];
-    symbolMap[symbol].push(network);
+  // ← Skip networks with no chainId — can't match or store them reliably
+  if (!chainId) {
+    logger.warn(`[sync] bitmart: skipping ${item.currency} — no chainId derivable`);
+    continue;
   }
+
+  const network = {
+    chain:          item.currency,
+    chainId,
+    withdrawFee:    parseFloat(item.withdraw_minfee)  || 0,
+    withdrawFeeUSD: null,
+    minWithdraw:    parseFloat(item.withdraw_minsize) || 0,
+    minDeposit:     parseFloat(item.recharge_minsize) || 0,
+    depositFee:     0,
+    arrivalMins:    estimateArrivalMins(chainId),
+    isActive:       item.withdraw_enabled || item.deposit_enabled,
+    dataSource:     'api',
+    lastSynced:     new Date(),
+  };
+
+  if (!symbolMap[symbol]) symbolMap[symbol] = [];
+  symbolMap[symbol].push(network);
+}
 
   logger.info(`[sync] bitmart: parsed ${Object.keys(symbolMap).length} coins`);
   return symbolMap;
@@ -634,25 +639,26 @@ async function syncExchange(exchangeKey, adminUserId) {
 
     let coinChanged = false;
     for (const newNet of newNetworks) {
-      const existing = coinData.networks.find(
-        n => n.chainId?.toLowerCase() === newNet.chainId?.toLowerCase()
-      );
+  const existing = coinData.networks.find(
+    n => n.chainId?.toLowerCase() === newNet.chainId?.toLowerCase()
+  );
 
-      if (!existing) {
-        coinData.networks.push(newNet);
-        coinChanged = true;
-      } else if (existing.dataSource === 'manual') {
-        skipped++;
-      } else {
-        existing.withdrawFee    = newNet.withdrawFee;
-        existing.minWithdraw    = newNet.minWithdraw;
-        existing.minDeposit     = newNet.minDeposit;
-        existing.isActive       = newNet.isActive;
-        existing.dataSource     = 'api';
-        existing.lastSynced     = new Date();
-        coinChanged = true;
-      }
-    }
+  if (!existing) {
+    coinData.networks.push(newNet);
+    coinChanged = true;
+    logger.info(`[sync] ${exchangeKey} NEW network: ${newNet.chain} (${newNet.chainId})`);
+  } else {
+    logger.info(`[sync] ${exchangeKey} UPDATING: ${newNet.chain} fee ${existing.withdrawFee} → ${newNet.withdrawFee}`);
+    existing.withdrawFee    = newNet.withdrawFee;
+    existing.withdrawFeeUSD = newNet.withdrawFeeUSD;
+    existing.minWithdraw    = newNet.minWithdraw;
+    existing.minDeposit     = newNet.minDeposit;
+    existing.isActive       = newNet.isActive;
+    existing.dataSource     = 'api';
+    existing.lastSynced     = new Date();
+    coinChanged = true;
+  }
+}
     if (coinChanged) synced++;
   }
 
@@ -681,4 +687,4 @@ async function syncExchange(exchangeKey, adminUserId) {
   };
 }
 
-module.exports = { syncExchange, testApiKeys, fetchExchangeFeeData };
+module.exports = { syncExchange, testApiKeys, fetchExchangeFeeData, getDecryptedKeys };

@@ -9,8 +9,8 @@ let cronInstance = null;
 const startCron = () => {
   if (cronInstance) return;
 
-  cronInstance = cron.schedule('0 * * * *', async () => {
-    logger.info('[cron] Hourly exchange sync triggered');
+  cronInstance = cron.schedule('0 */12 * * *', async () => {
+  logger.info('[cron] 12-hourly exchange sync triggered');
 
     await withLock('exchange-sync', async () => {
       try {

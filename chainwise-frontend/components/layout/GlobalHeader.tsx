@@ -1,9 +1,5 @@
 'use client';
 
-// components/layout/GlobalHeader.tsx
-// Shown on every page EXCEPT /chat routes (those use ChatWindow's own Header).
-// Provides the hamburger that opens the sidebar so nav is always accessible.
-
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, Zap } from 'lucide-react';
@@ -13,7 +9,6 @@ export default function GlobalHeader() {
   const { onOpen } = useSidebarOpen();
   const pathname = usePathname();
 
-  // Derive a readable page title from the current path
   const pageTitle = (() => {
     if (pathname.startsWith('/fees'))      return 'Fee Tables';
     if (pathname.startsWith('/coins'))     return 'Coin Explorer';
@@ -29,49 +24,42 @@ export default function GlobalHeader() {
       h-14 flex-shrink-0
       flex items-center justify-between
       px-3 sm:px-5
-      border-b border-zinc-200 dark:border-zinc-800
-      bg-white dark:bg-zinc-950
-      transition-colors duration-200
+      border-b-4 border-blue-900
+      bg-blue-600 text-white
       z-20
     ">
-      {/* Left — hamburger + logo */}
       <div className="flex items-center gap-3">
         <button
           onClick={onOpen}
           aria-label="Open menu"
           className="
-            p-2 -ml-1 rounded-lg
-            text-zinc-500 dark:text-zinc-400
-            hover:bg-zinc-100 dark:hover:bg-zinc-800
-            active:bg-zinc-200 dark:active:bg-zinc-700
-            transition-colors duration-150
+            p-2 bg-black text-white border-2 border-black
             touch-manipulation
           "
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Logo mark — always visible */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center">
-            <Zap className="w-3.5 h-3.5 text-zinc-950" />
+        <Link href="/" className="flex items-center gap-2 border-2 border-transparent px-1">
+          <div className="w-8 h-8 bg-yellow-400 border-2 border-black flex items-center justify-center">
+            <Zap className="w-4 h-4 text-black font-black" />
           </div>
-          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-500 text-sm tracking-[0.12em]">
+          <span className="font-sans font-black text-white text-sm tracking-[0.15em] uppercase">
             CHAINWISE
           </span>
         </Link>
       </div>
 
-      {/* Centre — current page label */}
-      <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.14em] hidden sm:inline">
-        {pageTitle}
-      </span>
+      <div className="hidden sm:flex bg-black text-white px-3 py-1.5 border-2 border-blue-900">
+        <span className="font-sans font-black text-xs uppercase tracking-widest">
+          {pageTitle}
+        </span>
+      </div>
 
-      {/* Right — live indicator */}
-      <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="font-mono text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase hidden sm:inline">
-          Live
+      <div className="flex items-center gap-2 bg-white text-black px-2 py-1.5 border-2 border-black">
+        <span className="w-2.5 h-2.5 bg-emerald-500 border-2 border-black animate-pulse" />
+        <span className="font-sans text-[10px] font-black tracking-widest uppercase hidden sm:inline">
+          LIVE
         </span>
       </div>
     </header>

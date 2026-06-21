@@ -1,5 +1,5 @@
 const ExchangeApiKey = require('../models/ExchangeApiKey');
-const { testApiKeys } = require('../services/exchangeSync');
+const { testApiKeys, getDecryptedKeys } = require('../services/exchangeSync');
 const { queueSync, queueAllExchanges, getQueueStats } = require('../jobs/syncQueue');
 const { success, error: sendError } = require('../../utils/response');
 const logger = require('../../utils/logger');
@@ -107,6 +107,31 @@ const triggerAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// POST /api/sync/test/:exchange — test stored keys without re-entering them
+const testStoredKeys = async (req, res, next) => {
+  try {
+    const exchange = req.params.exchange.toLowerCase();
+    const { apiKey, apiSecret, passphrase } = await getDecryptedKeys(exchange, req.userId);
+    const result = await testApiKeys(exchange, apiKey, apiSecret, passphrase);
+    
+    // Update isValid status in DB based on result
+    await ExchangeApiKey.findOneAndUpdate(
+      { adminUserId: req.userId, exchange },
+      { isValid: result.valid, lastTested: new Date(), lastError: result.error || null }
+    );
+
+    return success(res, {
+      exchange,
+      isValid:   result.valid,
+      lastTested: new Date(),
+      error:     result.error || null,
+      message:   result.valid
+        ? `✓ ${exchange} connection is working`
+        : `Connection failed: ${result.error}`,
+    });
+  } catch (err) { next(err); }
+};
+
 // GET /api/sync/status — queue stats + last sync times
 const getStatus = async (req, res, next) => {
   try {
@@ -125,4 +150,4 @@ const getStatus = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { listKeys, saveKeys, deleteKeys, triggerSync, triggerAll, getStatus };
+module.exports = { listKeys, saveKeys, deleteKeys, triggerSync, triggerAll, getStatus, testStoredKeys };

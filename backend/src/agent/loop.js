@@ -5,18 +5,13 @@ const logger = require('../../utils/logger');
 // ── Model fallback chain ───────────────────────────────────────────────────
 // Ordered by preference. On rate-limit or tool-call failure, next model is tried.
 const MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
   'openrouter/free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
-  'deepseek/deepseek-r1:free',
-  'qwen/qwen2.5-72b-instruct:free',
-  'nvidia/llama-3.1-nemotron-70b-instruct:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
 ];
-
+ 
 const TOOL_CAPABLE_MODELS = new Set([
-  'meta-llama/llama-3.3-70b-instruct:free',
   'openrouter/free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
 ]);
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';

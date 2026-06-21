@@ -4,28 +4,23 @@ import { motion } from 'framer-motion';
 import { DollarSign, Battery, Globe, Route, Scale, Gift, Sparkles } from 'lucide-react';
 
 const PROMPTS = [
-  { icon: <DollarSign className="w-4 h-4 shrink-0" />, text: 'Cheapest chain to withdraw USDT from Bybit?' },
-  { icon: <Battery className="w-4 h-4 shrink-0" />,    text: 'I have 7 USDC on Ethereum but zero gas. Help.' },
-  { icon: <Globe className="w-4 h-4 shrink-0" />,      text: 'I am in Kenya. CoinEx P2P doesn\'t work. How do I deposit $3 to CoinEx?' },
-  { icon: <Route className="w-4 h-4 shrink-0" />,      text: 'Best bridge route: USDC on Ethereum → Base chain?' },
-  { icon: <Scale className="w-4 h-4 shrink-0" />,      text: 'Compare USDT withdrawal fees across all exchanges' },
-  { icon: <Gift className="w-4 h-4 shrink-0" />,       text: 'Any active giveaways on Binance right now?' },
+  { icon: <DollarSign className="w-5 h-5 shrink-0 text-white" />, text: 'Cheapest chain to withdraw USDT from Bybit?', bg: 'bg-cyan-600 border-cyan-800' },
+  { icon: <Battery className="w-5 h-5 shrink-0 text-white" />,    text: 'I have 7 USDC on Ethereum but zero gas. Help.', bg: 'bg-indigo-600 border-indigo-800' },
+  { icon: <Globe className="w-5 h-5 shrink-0 text-white" />,      text: 'I am in Kenya. CoinEx P2P doesn\'t work. How do I deposit $3 to CoinEx?', bg: 'bg-fuchsia-600 border-fuchsia-800' },
+  { icon: <Route className="w-5 h-5 shrink-0 text-white" />,      text: 'Best bridge route: USDC on Ethereum → Base chain?', bg: 'bg-orange-600 border-orange-800' },
+  { icon: <Scale className="w-5 h-5 shrink-0 text-white" />,      text: 'Compare USDT withdrawal fees across all exchanges', bg: 'bg-teal-600 border-teal-800' },
+  { icon: <Gift className="w-5 h-5 shrink-0 text-white" />,       text: 'Any active giveaways on Binance right now?', bg: 'bg-rose-600 border-rose-800' },
 ];
 
 const STATS = [
-  { label: 'Exchanges', value: '6+' },
-  { label: 'Bridges',   value: 'LI.FI' },
-  { label: 'Live Data', value: 'CoinGecko' },
-  { label: 'Chains',    value: '10+' },
+  { label: 'Exchanges', value: '6+', bg: 'bg-red-500 border-red-800' },
+  { label: 'Bridges',   value: 'LI.FI', bg: 'bg-amber-500 border-amber-800' },
+  { label: 'Live Data', value: 'CoinGecko', bg: 'bg-lime-500 border-lime-800' },
+  { label: 'Chains',    value: '10+', bg: 'bg-blue-500 border-blue-800' },
 ];
 
 export default function SuggestedPrompts({ onSelect }: { onSelect: (text: string) => void }) {
   return (
-    /*
-     * h-full + flex flex-col: this component fills whatever height the parent
-     * gives it (the non-scrolling zone in ChatWindow) and distributes space
-     * between hero, stats, and prompts without ever needing to scroll.
-     */
     <div className="h-full flex flex-col justify-between px-3 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto w-full">
 
       {/* ── Hero ──────────────────────────────────────────────────────── */}
@@ -35,14 +30,14 @@ export default function SuggestedPrompts({ onSelect }: { onSelect: (text: string
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="w-11 h-11 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-          <Sparkles className="w-5 h-5 text-zinc-900 dark:text-zinc-100" />
+        <div className="p-3 bg-violet-600 text-white border-4 border-violet-900 shadow-none">
+          <Sparkles className="w-8 h-8" />
         </div>
         <div>
-          <h1 className="font-sans font-semibold text-2xl sm:text-3xl text-zinc-900 dark:text-zinc-100 tracking-tight">
+          <h1 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 dark:text-white uppercase tracking-tight">
             ChainWise
           </h1>
-          <p className="text-zinc-500 text-[10px] tracking-widest font-sans uppercase mt-1">
+          <p className="bg-black text-white px-3 py-1 font-black text-[10px] tracking-widest uppercase mt-2 border-2 border-slate-700">
             Smart Routing · Zero Fees · Cross-Chain Intelligence
           </p>
         </div>
@@ -58,12 +53,12 @@ export default function SuggestedPrompts({ onSelect }: { onSelect: (text: string
         {STATS.map(stat => (
           <div
             key={stat.label}
-            className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2 py-3 text-center"
+            className={`${stat.bg} border-2 px-2 py-3 text-center`}
           >
-            <div className="text-zinc-900 dark:text-zinc-100 font-sans font-semibold text-xs sm:text-sm leading-none">
+            <div className="text-white font-black text-sm sm:text-base leading-none">
               {stat.value}
             </div>
-            <div className="text-zinc-500 font-sans text-[9px] sm:text-[10px] tracking-wide mt-1.5 uppercase leading-none">
+            <div className="text-white font-black text-[9px] sm:text-[10px] tracking-widest mt-1.5 uppercase leading-none bg-black/30 py-0.5">
               {stat.label}
             </div>
           </div>
@@ -76,31 +71,22 @@ export default function SuggestedPrompts({ onSelect }: { onSelect: (text: string
         animate={{ opacity: 1 }}
         transition={{ delay: 0.28, duration: 0.35 }}
       >
-        <p className="text-zinc-400 dark:text-zinc-500 font-sans text-xs font-medium mb-3">
+        <p className="bg-slate-900 text-white text-center font-black text-xs py-1.5 mb-3 border-2 border-slate-700 uppercase tracking-widest">
           Try asking
         </p>
-        {/*
-          2-column grid on sm+, 1-column on mobile.
-          Each button is intentionally compact (py-3 instead of py-4) so
-          6 items fit in the remaining height without overflow.
-        */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
           {PROMPTS.map((p, i) => (
             <motion.button
               key={i}
               onClick={() => onSelect(p.text)}
-              className="
-                flex items-start gap-3 text-left px-4 py-3 rounded-xl
-                bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800
-                text-zinc-600 dark:text-zinc-400 font-sans text-xs sm:text-sm leading-snug
-                hover:border-zinc-300 dark:hover:border-zinc-700
-                hover:bg-zinc-50 dark:hover:bg-zinc-900
-                hover:text-zinc-900 dark:hover:text-zinc-200
-                transition-all duration-150
-              "
+              className={`
+                flex items-start gap-3 text-left px-4 py-3 border-4 text-white
+                font-sans font-black text-xs sm:text-sm leading-snug
+                ${p.bg}
+              `}
               whileTap={{ scale: 0.985 }}
             >
-              <span className="text-zinc-400 dark:text-zinc-500 mt-0.5">{p.icon}</span>
+              <span className="mt-0.5 bg-black/30 p-1">{p.icon}</span>
               <span>{p.text}</span>
             </motion.button>
           ))}

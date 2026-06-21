@@ -141,6 +141,31 @@ export default function SyncPage() {
     }
   };
 
+  const testConnection = async (exchangeKey: string) => {
+  setSyncing(`test-${exchangeKey}`);
+  try {
+    const token = await getFreshToken();
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/sync/test/${exchangeKey}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await res.json();
+    if (data.success) {
+      showToast(
+        data.data.isValid ? 'success' : 'error',
+        data.data.message
+      );
+      await loadStatus(); // refresh the connected/error state
+    } else {
+      showToast('error', data.error?.message || 'Test failed');
+    }
+  } catch {
+    showToast('error', 'Network error');
+  } finally {
+    setSyncing(null);
+  }
+};
+
   const triggerSync = async (exchangeKey: string) => {
     setSyncing(exchangeKey);
     try {
@@ -310,43 +335,61 @@ export default function SyncPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Sync now button */}
-                    {hasKeys && status!.isValid && (
-                      <button
-                        onClick={() => triggerSync(ex.key)}
-                        disabled={syncing === ex.key}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-border font-mono text-xs text-brand-muted hover:text-brand-green hover:border-brand-dim transition-all disabled:opacity-50"
-                        title="Sync now"
-                      >
-                        <Play className={`w-3 h-3 ${syncing === ex.key ? 'animate-spin' : ''}`} />
-                        {syncing === ex.key ? 'Syncing...' : 'Sync'}
-                      </button>
-                    )}
+  {/* Test stored connection — no re-entry needed */}
+  {hasKeys && (
+    <button
+      onClick={() => testConnection(ex.key)}
+      disabled={syncing === `test-${ex.key}`}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-mono text-xs transition-all disabled:opacity-50 ${
+        status!.isValid
+          ? 'border-brand-border text-brand-muted hover:text-brand-green hover:border-brand-green/40'
+          : 'border-red-800/50 text-red-400 hover:border-red-500'
+      }`}
+      title="Re-test stored keys"
+    >
+      {syncing === `test-${ex.key}`
+        ? <RefreshCw className="w-3 h-3 animate-spin" />
+        : <CheckCircle className="w-3 h-3" />
+      }
+      {syncing === `test-${ex.key}` ? 'Testing...' : 'Test'}
+    </button>
+  )}
 
-                    {/* Delete keys */}
-                    {hasKeys && (
-                      <button
-                        onClick={() => deleteKeys(ex.key)}
-                        className="p-1.5 rounded-lg border border-brand-border text-brand-muted hover:text-red-400 hover:border-red-500/40 transition-all"
-                        title="Remove keys"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+  {/* Sync now */}
+  {hasKeys && status!.isValid && (
+    <button
+      onClick={() => triggerSync(ex.key)}
+      disabled={syncing === ex.key}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-border font-mono text-xs text-brand-muted hover:text-brand-green hover:border-brand-dim transition-all disabled:opacity-50"
+    >
+      <Play className={`w-3 h-3 ${syncing === ex.key ? 'animate-spin' : ''}`} />
+      {syncing === ex.key ? 'Syncing...' : 'Sync'}
+    </button>
+  )}
 
-                    {/* Add / edit keys toggle */}
-                    <button
-                      onClick={() => setExpanded(isExpanded ? null : ex.key)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-mono text-xs transition-all ${
-                        isExpanded
-                          ? 'bg-brand-green/10 border border-brand-green/30 text-brand-green'
-                          : 'border border-brand-border text-brand-muted hover:text-brand-text'
-                      }`}
-                    >
-                      <Key className="w-3 h-3" />
-                      {hasKeys ? 'Update Keys' : 'Add Keys'}
-                    </button>
-                  </div>
+  {/* Delete */}
+  {hasKeys && (
+    <button
+      onClick={() => deleteKeys(ex.key)}
+      className="p-1.5 rounded-lg border border-brand-border text-brand-muted hover:text-red-400 hover:border-red-500/40 transition-all"
+    >
+      <Trash2 className="w-3.5 h-3.5" />
+    </button>
+  )}
+
+  {/* Add / Update keys */}
+  <button
+    onClick={() => setExpanded(isExpanded ? null : ex.key)}
+    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-mono text-xs transition-all ${
+      isExpanded
+        ? 'bg-brand-green/10 border border-brand-green/30 text-brand-green'
+        : 'border border-brand-border text-brand-muted hover:text-brand-text'
+    }`}
+  >
+    <Key className="w-3 h-3" />
+    {hasKeys ? 'Update Keys' : 'Add Keys'}
+  </button>
+</div>
                 </div>
 
                 {/* Expandable form */}

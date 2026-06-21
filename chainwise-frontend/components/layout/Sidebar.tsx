@@ -13,14 +13,14 @@ import ConversationHistory from './ConversationHistory';
 import { useSidebarRefresh } from '@/contexts/SidebarRefreshContext';
 
 const NAV_TOP = [
-  { href: '/chat',       icon: MessageSquare, label: 'Agent Chat',       adminOnly: false },
-  { href: '/coins',      icon: Search,        label: 'Coin Explorer',    adminOnly: false },
-  { href: '/fees',       icon: BarChart3,     label: 'Fee Tables',       adminOnly: false },
-  { href: '/p2p',        icon: ArrowLeftRight, label: 'P2P Market',      adminOnly: false },
-  { href: '/giveaways',  icon: Gift,          label: 'Giveaways',        adminOnly: false },
-  { href: '/admin',      icon: ShieldCheck,   label: 'Admin',            adminOnly: true  },
-  { href: '/admin/sync', icon: RefreshCw,     label: 'Auto-Sync',        adminOnly: true  },
-  { href: '/admin/users',icon: UsersRound,    label: 'User Management',  adminOnly: true  },
+  { href: '/chat',       icon: MessageSquare, label: 'AGENT CHAT',       adminOnly: false },
+  { href: '/coins',      icon: Search,        label: 'COIN EXPLORER',    adminOnly: false },
+  { href: '/fees',       icon: BarChart3,     label: 'FEE TABLES',       adminOnly: false },
+  { href: '/p2p',        icon: ArrowLeftRight, label: 'P2P MARKET',      adminOnly: false },
+  { href: '/giveaways',  icon: Gift,          label: 'GIVEAWAYS',        adminOnly: false },
+  { href: '/admin',      icon: ShieldCheck,   label: 'ADMIN',            adminOnly: true  },
+  { href: '/admin/sync', icon: RefreshCw,     label: 'AUTO-SYNC',        adminOnly: true  },
+  { href: '/admin/users',icon: UsersRound,    label: 'USER MANAGEMENT',  adminOnly: true  },
 ];
 
 interface Props {
@@ -44,44 +44,35 @@ export default function Sidebar({ isOpen, onClose }: Props) {
 
   const handleNavClick = () => onClose();
 
-  /* ─── Shared sidebar body ─────────────────────────────────────────────── */
   const sidebarBody = (
     <aside className="
-      w-60 h-full
-      border-r border-zinc-200 dark:border-zinc-800
-      bg-white dark:bg-zinc-950
-      flex flex-col
-      transition-colors duration-200
+      w-64 h-full flex flex-col
+      border-r-4 border-black
+      bg-white dark:bg-slate-900
     ">
 
-      {/* Logo row */}
-      <div className="px-4 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center">
-            <Zap className="w-4 h-4 text-zinc-950" />
+      <div className="px-4 py-4 border-b-4 border-black bg-yellow-400 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-1">
+          <div className="w-10 h-10 bg-black flex items-center justify-center border-2 border-black">
+            <Zap className="w-5 h-5 text-yellow-400" />
           </div>
           <div>
-            <div className="font-sans font-bold text-emerald-600 dark:text-emerald-500 text-sm tracking-[0.15em]">CHAINWISE</div>
-            <div className="font-sans text-[9px] font-medium text-zinc-500 dark:text-zinc-400 tracking-widest uppercase">CRYPTO AGENT</div>
+            <div className="font-sans font-black text-black text-lg leading-none tracking-widest uppercase">CHAINWISE</div>
+            <div className="font-sans font-black text-black text-[10px] tracking-widest uppercase bg-white border border-black px-1 mt-1 inline-block">CRYPTO AGENT</div>
           </div>
         </div>
-        {/* Close — visible on mobile drawer */}
         <button
           onClick={onClose}
           aria-label="Close menu"
           className="
-            p-1.5 rounded-lg
-            text-zinc-500 dark:text-zinc-400
-            hover:bg-zinc-100 dark:hover:bg-zinc-800
-            transition-colors duration-150
+            md:hidden p-2 bg-red-600 text-white border-2 border-black
           "
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5 font-black" />
         </button>
       </div>
 
-      {/* Nav links */}
-      <nav className="px-3 pt-3 pb-1 space-y-0.5 flex-shrink-0">
+      <nav className="px-3 pt-4 pb-2 space-y-2 flex-shrink-0 bg-slate-100 dark:bg-slate-800 border-b-4 border-black">
         {NAV_TOP
           .filter(item => !item.adminOnly || isAdmin)
           .map(({ href, icon: Icon, label }) => {
@@ -92,70 +83,69 @@ export default function Sidebar({ isOpen, onClose }: Props) {
                 href={href}
                 onClick={handleNavClick}
                 className={`
-                  flex items-center gap-2.5 px-3 py-2 rounded-lg
-                  font-sans text-sm transition-colors duration-200
+                  flex items-center gap-3 px-3 py-0.5 border-2 font-sans text-sm font-black tracking-wide
                   ${active
-                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 border border-emerald-200 dark:border-emerald-500/20'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:text-zinc-700 dark:hover:text-zinc-300'
+                    ? 'bg-blue-600 text-white border-blue-900'
+                    : 'bg-white dark:bg-slate-950 text-black dark:text-white border-black'
                   }
                 `}
               >
-                <Icon className="w-4 h-4 flex-shrink-0" />
+                <div className={`p-1 border-2 ${active ? 'border-white/50' : 'border-black dark:border-slate-700'}`}>
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                </div>
                 {label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                {active && <span className="ml-auto w-2.5 h-2.5 bg-yellow-400 border-2 border-black" />}
               </Link>
             );
           })}
       </nav>
 
-      {/* Conversation history */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 mt-2 flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col">
         <ConversationHistory
           onNewChat={handleNewChat}
           refreshTrigger={historyRefreshTrigger}
         />
       </div>
 
-      {/* User footer */}
-      <div className="px-3 py-3 border-t border-zinc-200 dark:border-zinc-800 flex-shrink-0">
+      <div className="p-4 border-t-4 border-black bg-emerald-400 dark:bg-emerald-800 flex-shrink-0">
         {loading ? (
-          <div className="h-8 bg-zinc-100 dark:bg-zinc-800 rounded-lg animate-pulse" />
+          <div className="h-10 bg-black animate-pulse border-2 border-black" />
         ) : isAuthenticated && user ? (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 px-2 py-1">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-2 border-2 border-black">
               {user.user_metadata?.avatar_url ? (
                 <Image
                   src={user.user_metadata.avatar_url}
-                  width={24}
-                  height={24}
-                  className="rounded-full"
+                  width={32}
+                  height={32}
+                  className="border-2 border-black"
                   alt="User avatar"
                 />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-zinc-950 text-[10px] font-bold">
+                <div className="w-8 h-8 bg-black flex items-center justify-center text-white text-sm font-black border-2 border-white">
                   {user.email?.[0]?.toUpperCase()}
                 </div>
               )}
-              <span className="font-sans text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1">
+              <span className="font-sans font-black text-xs text-black dark:text-white truncate flex-1 uppercase tracking-wider">
                 {user.user_metadata?.full_name || user.email}
               </span>
             </div>
             <button
               onClick={() => { signOut(); onClose(); }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg font-sans text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors duration-200"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-black text-white border-2 border-black font-sans text-xs font-black tracking-widest uppercase"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              Sign out
+              <LogOut className="w-4 h-4" />
+              SIGN OUT
             </button>
           </div>
         ) : (
           <Link
             href="/login"
             onClick={handleNavClick}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg font-sans text-sm text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors duration-200"
+            className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-black text-white border-2 border-black font-sans text-sm font-black tracking-widest uppercase"
           >
             <LogIn className="w-4 h-4" />
-            Sign in
+            SIGN IN
           </Link>
         )}
       </div>
@@ -164,33 +154,24 @@ export default function Sidebar({ isOpen, onClose }: Props) {
 
   return (
     <>
-      {/* ── Desktop: static sidebar ───────────────────────────────────── */}
-      <div
-        className={`
-          hidden md:flex flex-shrink-0 h-full
-          transform transition-transform duration-[250ms] ease-in-out
-          ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-        `}
-      >
+      <div className={`
+        hidden md:flex flex-shrink-0 h-full z-40
+        ${isOpen ? 'block' : 'hidden'}
+      `}>
         {sidebarBody}
       </div>
 
-      {/* ── Mobile: backdrop ──────────────────────────────────────────── */}
       {isOpen && (
         <div
-          className="md:hidden fixed inset-0 z-40 bg-zinc-950/60 backdrop-blur-sm"
+          className="md:hidden fixed inset-0 z-40 bg-black/80"
           onClick={onClose}
         />
       )}
 
-      {/* ── Mobile: slide-in drawer ───────────────────────────────────── */}
-      <div
-        className={`
-          md:hidden fixed top-0 left-0 z-50 h-full
-          transform transition-transform duration-[250ms] ease-in-out
-          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
-      >
+      <div className={`
+        md:hidden fixed top-0 left-0 z-50 h-full
+        ${isOpen ? 'block' : 'hidden'}
+      `}>
         {sidebarBody}
       </div>
     </>

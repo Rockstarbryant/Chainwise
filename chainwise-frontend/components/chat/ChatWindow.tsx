@@ -28,26 +28,23 @@ export default function ChatWindow({ conversationId }: Props) {
     showAuthGate, setShowAuthGate,
     anonCount, anonLimit,
     createdConversationId,
-    hasSentMessage,           // ← now comes from hook (ref-backed, survives remounts)
+    hasSentMessage,
   } = useChat(conversationId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editIndex,   setEditIndex]   = useState<number | null>(null);
   const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
 
-  /* ── Auto-scroll ─────────────────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  /* ── Redirect after stream succeeds on a new conversation ────────────── */
   useEffect(() => {
     if (!createdConversationId) return;
     triggerHistoryRefresh();
     router.replace(`/chat/${createdConversationId}`);
   }, [createdConversationId, router, triggerHistoryRefresh]);
 
-  /* ── Refresh sidebar after agent responds ─────────────────────────────── */
   const prevLoadingRef = useRef(false);
   useEffect(() => {
     const justFinished = prevLoadingRef.current && !loading;
@@ -58,7 +55,6 @@ export default function ChatWindow({ conversationId }: Props) {
     }
   }, [loading, conversationId, triggerHistoryRefresh]);
 
-  /* ── Handlers ────────────────────────────────────────────────────────── */
   const handleEdit = (index: number) => {
     const msg = messages[index];
     if (!msg || msg.role !== 'user') return;
@@ -92,12 +88,6 @@ export default function ChatWindow({ conversationId }: Props) {
     -1
   );
 
-  // Hide suggested prompts if:
-  // - history is loading
-  // - we have messages
-  // - user has already sent a message in this session (ref survives redirect)
-  // - still loading a response
-  // - we just created a conv and are about to redirect
   const showSuggestedPrompts =
     !loadingHistory &&
     messages.length === 0 &&
@@ -109,10 +99,10 @@ export default function ChatWindow({ conversationId }: Props) {
   const showTypingIndicator = loading && !hasStreamingMessage;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
+    <div className="flex flex-col h-full overflow-hidden bg-sky-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 z-30">
+      <div className="flex-shrink-0 z-30 bg-blue-600 text-white border-b-4 border-blue-800">
         <Header
           anonCount={anonCount}
           anonLimit={anonLimit}
@@ -129,14 +119,14 @@ export default function ChatWindow({ conversationId }: Props) {
             <div className="space-y-6 sm:space-y-8 animate-pulse">
               {[1, 2, 3].map(i => (
                 <div key={i} className={`flex gap-3 sm:gap-4 items-start ${i % 2 === 0 ? 'flex-row-reverse' : ''}`}>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex-shrink-0" />
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-none bg-slate-400 dark:bg-slate-600 flex-shrink-0" />
                   <div
                     className={`space-y-2 ${i % 2 === 0 ? 'items-end' : 'items-start'} flex flex-col`}
                     style={{ width: `${[55, 70, 45][i - 1]}%` }}
                   >
-                    <div className="h-3.5 w-full rounded-lg bg-zinc-200 dark:bg-zinc-800" />
-                    <div className="h-3.5 w-4/5 rounded-lg bg-zinc-200 dark:bg-zinc-800" />
-                    {i === 2 && <div className="h-3.5 w-3/5 rounded-lg bg-zinc-200 dark:bg-zinc-800" />}
+                    <div className="h-4 w-full rounded-none bg-slate-400 dark:bg-slate-600" />
+                    <div className="h-4 w-4/5 rounded-none bg-slate-400 dark:bg-slate-600" />
+                    {i === 2 && <div className="h-4 w-3/5 rounded-none bg-slate-400 dark:bg-slate-600" />}
                   </div>
                 </div>
               ))}
@@ -178,15 +168,15 @@ export default function ChatWindow({ conversationId }: Props) {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-zinc-600 dark:text-zinc-300 flex-shrink-0">
-                <Bot className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-none bg-emerald-600 border-2 border-emerald-800 flex items-center justify-center text-white flex-shrink-0">
+                <Bot className="w-4 h-4" />
               </div>
-              <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-sm px-4 sm:px-5 py-3 sm:py-3.5">
+              <div className="bg-emerald-200 dark:bg-emerald-900 border-2 border-emerald-600 rounded-none px-4 sm:px-5 py-3 sm:py-3.5">
                 <div className="flex gap-1.5 items-center h-4">
                   {[0, 1, 2].map(j => (
                     <span
                       key={j}
-                      className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-pulse"
+                      className="w-2 h-2 bg-emerald-700 dark:bg-emerald-400 animate-pulse"
                       style={{ animationDelay: `${j * 0.2}s` }}
                     />
                   ))}

@@ -7,8 +7,27 @@ import { Search, X, ChevronDown, ChevronUp, Check, ExternalLink } from 'lucide-r
 
 const POPULAR_COINS = ['USDT', 'USDC', 'ETH', 'BTC', 'BNB', 'SOL'];
 
-// Maximum chain pills to show inline before hiding the rest behind "more"
 const CHAIN_PILLS_VISIBLE = 6;
+
+// Distinct solid colors for the exchange column cells based on index/rank
+const EXCHANGE_SOLID_COLORS = [
+  'bg-red-500 text-white dark:bg-red-700',
+  'bg-orange-500 text-white dark:bg-orange-700',
+  'bg-amber-500 text-black dark:bg-amber-600 dark:text-white',
+  'bg-yellow-400 text-black dark:bg-yellow-600 dark:text-white',
+  'bg-lime-500 text-black dark:bg-lime-700 dark:text-white',
+  'bg-emerald-500 text-white dark:bg-emerald-700',
+  'bg-teal-500 text-white dark:bg-teal-700',
+  'bg-cyan-500 text-black dark:bg-cyan-700 dark:text-white',
+  'bg-sky-500 text-white dark:bg-sky-700',
+  'bg-blue-500 text-white dark:bg-blue-700',
+  'bg-indigo-500 text-white dark:bg-indigo-700',
+  'bg-violet-500 text-white dark:bg-violet-700',
+  'bg-purple-500 text-white dark:bg-purple-700',
+  'bg-fuchsia-500 text-white dark:bg-fuchsia-700',
+  'bg-pink-500 text-white dark:bg-pink-700',
+  'bg-rose-500 text-white dark:bg-rose-700',
+];
 
 interface AvailableChain {
   chain: string;
@@ -55,11 +74,9 @@ export default function FeeTable() {
   const [loading, setLoading]           = useState(true);
   const [noData, setNoData]             = useState(false);
 
-  // Chain filter state
   const [selectedChain, setSelectedChain]     = useState<string | null>(null);
   const [showAllChains, setShowAllChains]     = useState(false);
 
-  // Expand/collapse state per exchange — keyed by exchangeSlug, default collapsed
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,14 +97,12 @@ export default function FeeTable() {
     setExpandedCards({});
   };
 
-  // Exchange metadata (website, twitter, p2p info) — joined by exchangeSlug
   useEffect(() => {
     getExchanges()
       .then(res => setExchanges(res.data || []))
       .catch(console.error);
   }, []);
 
-  // Fetch comparison data when coin changes; reset chain selection + collapse all cards
   useEffect(() => {
     const coin = selectedCoin.trim().toUpperCase();
     if (!coin) return;
@@ -96,7 +111,7 @@ export default function FeeTable() {
     setNoData(false);
     setSelectedChain(null);
     setShowAllChains(false);
-    setExpandedCards({}); // collapse all on new coin
+    setExpandedCards({});
 
     compareExchanges(coin)
       .then((res: any) => {
@@ -111,12 +126,8 @@ export default function FeeTable() {
       .finally(() => setLoading(false));
   }, [selectedCoin]);
 
-  // ---------------------------------------------------------------------------
-  // Client-side chain filtering — no re-fetch needed
-  // ---------------------------------------------------------------------------
   const displayComparison = useMemo<ComparisonRow[]>(() => {
     if (!fullData) return [];
-
     if (!selectedChain) return fullData.comparison;
 
     return fullData.comparison
@@ -182,18 +193,15 @@ export default function FeeTable() {
     ? (allChains.find(c => c.chainId === selectedChain)?.chain ?? 'Chain')
     : 'Cheapest Chain';
 
-  // Whether any card is expanded (for the expand/collapse all controls)
-  const anyExpanded = fullData?.comparison.some(r => expandedCards[r.exchangeSlug]) ?? false;
-
   return (
-    <div className="space-y-6 text-neutral-900 dark:text-neutral-100">
+    <div className="space-y-6 text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-900 p-6 rounded-xl">
 
       {/* ── Search bar ────────────────────────────────────────────────────── */}
-      <div className="space-y-4">
+      <div className="space-y-4 bg-white dark:bg-slate-950 p-4 border-2 border-pink-500 rounded-lg">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400 tracking-widest shrink-0">COMPARE</span>
+          <span className="font-mono text-xs bg-pink-600 text-white px-3 py-1 rounded tracking-widest shrink-0 font-bold">COMPARE</span>
           <div className="relative flex-1 max-w-md" suppressHydrationWarning>
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pink-600 pointer-events-none" />
             <input
               ref={inputRef}
               type="text"
@@ -202,11 +210,11 @@ export default function FeeTable() {
               placeholder="Search any coin… e.g. XRP"
               className="
                 w-full pl-10 pr-10 py-2
-                font-mono text-sm bg-transparent
-                border border-neutral-300 dark:border-neutral-700 rounded-md
-                placeholder:text-neutral-400 dark:placeholder:text-neutral-500
-                focus:outline-none focus:border-neutral-900 dark:focus:border-neutral-100
-                transition-colors duration-200
+                font-mono text-sm bg-pink-100 dark:bg-pink-950
+                border-2 border-pink-400 rounded-md
+                text-pink-900 dark:text-pink-100
+                placeholder:text-pink-500
+                focus:outline-none focus:border-pink-600
               "
               spellCheck={false}
               autoComplete="off"
@@ -216,7 +224,7 @@ export default function FeeTable() {
             {inputValue && (
               <button
                 onClick={handleClear}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-pink-600 font-bold"
                 aria-label="Clear search"
               >
                 <X className="w-4 h-4" />
@@ -227,7 +235,7 @@ export default function FeeTable() {
 
         {/* Popular quick-picks */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400 tracking-widest mr-2">POPULAR:</span>
+          <span className="font-mono text-[11px] text-fuchsia-700 dark:text-fuchsia-400 tracking-widest mr-2 font-bold">POPULAR:</span>
           {POPULAR_COINS.map(coin => {
             const isActive = selectedCoin === coin && inputValue === coin;
             return (
@@ -235,10 +243,10 @@ export default function FeeTable() {
                 key={coin}
                 onClick={() => handlePopularClick(coin)}
                 className={`
-                  font-mono text-[11px] px-3 py-1.5 rounded-md border transition-all duration-200
+                  font-mono text-[11px] px-3 py-1.5 rounded-md border-2 font-bold
                   ${isActive
-                    ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-black dark:border-white'
-                    : 'bg-transparent text-neutral-600 border-neutral-200 hover:border-neutral-400 dark:text-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600'
+                    ? 'bg-fuchsia-600 text-white border-fuchsia-700'
+                    : 'bg-fuchsia-200 text-fuchsia-900 border-fuchsia-400 dark:bg-fuchsia-900 dark:text-fuchsia-100'
                   }
                 `}
               >
@@ -248,19 +256,19 @@ export default function FeeTable() {
           })}
         </div>
 
-                {/* Live Coin Price */}
+        {/* Live Coin Price */}
         {fullData?.priceUSD !== undefined && (
-          <div className="flex items-center gap-3 mt-2 text-sm font-mono">
-            <span className="text-neutral-500 dark:text-neutral-400">Current Price:</span>
+          <div className="flex items-center gap-3 mt-2 text-sm font-mono bg-emerald-100 dark:bg-emerald-950 border-2 border-emerald-500 p-2 rounded">
+            <span className="text-emerald-900 dark:text-emerald-100 font-bold">Current Price:</span>
             {fullData.priceUSD ? (
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+              <span className="text-emerald-800 dark:text-emerald-300 font-black">
                 ${fullData.priceUSD.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 8,
                 })}
               </span>
             ) : (
-              <span className="text-neutral-400">—</span>
+              <span className="text-emerald-700">—</span>
             )}
           </div>
         )}
@@ -268,13 +276,13 @@ export default function FeeTable() {
 
       {/* ── Chain filter pills ────────────────────────────────────────────── */}
       {!loading && allChains.length > 1 && (
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-[#0a0a0a] px-4 py-4 space-y-3">
+        <div className="rounded-lg border-2 border-violet-500 bg-violet-100 dark:bg-violet-950 px-4 py-4 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">
+            <span className="font-mono text-[11px] bg-violet-600 text-white px-2 py-0.5 rounded tracking-widest uppercase font-bold">
               Filter by Chain
             </span>
             {selectedChain && (
-              <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+              <span className="font-mono text-[11px] text-violet-900 dark:text-violet-200 bg-violet-300 dark:bg-violet-800 px-2 py-0.5 rounded font-bold">
                 {supportedCount} of {fullData?.comparison.length} exchange{fullData?.comparison.length !== 1 ? 's' : ''} support this chain
               </span>
             )}
@@ -284,10 +292,10 @@ export default function FeeTable() {
             <button
               onClick={() => setSelectedChain(null)}
               className={`
-                font-mono text-[11px] px-3 py-1.5 rounded-md border transition-all duration-200 shrink-0
+                font-mono text-[11px] px-3 py-1.5 rounded-md border-2 font-bold
                 ${!selectedChain
-                  ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-black dark:border-white'
-                  : 'bg-white dark:bg-transparent text-neutral-600 border-neutral-200 hover:border-neutral-400 dark:text-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-500'
+                  ? 'bg-violet-700 text-white border-violet-800'
+                  : 'bg-white text-violet-900 border-violet-400 dark:bg-slate-900 dark:text-violet-100'
                 }
               `}
             >
@@ -306,15 +314,15 @@ export default function FeeTable() {
                   onClick={() => handleChainSelect(c.chainId)}
                   title={`${supportCount} exchange${supportCount !== 1 ? 's' : ''} support ${c.chain}`}
                   className={`
-                    font-mono text-[11px] px-3 py-1.5 rounded-md border transition-all duration-200 shrink-0 flex items-center gap-1.5
+                    font-mono text-[11px] px-3 py-1.5 rounded-md border-2 shrink-0 flex items-center gap-1.5 font-bold
                     ${isActive
-                      ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-black dark:border-white'
-                      : 'bg-white dark:bg-transparent text-neutral-600 border-neutral-200 hover:border-neutral-400 dark:text-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-500'
+                      ? 'bg-violet-700 text-white border-violet-800'
+                      : 'bg-white text-violet-900 border-violet-400 dark:bg-slate-900 dark:text-violet-100'
                     }
                   `}
                 >
                   {c.chain}
-                  <span className={isActive ? 'text-neutral-300 dark:text-neutral-500' : 'text-neutral-400 dark:text-neutral-600'}>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${isActive ? 'bg-violet-900 text-white' : 'bg-violet-200 text-violet-900 dark:bg-violet-800 dark:text-violet-100'}`}>
                     {supportCount}
                   </span>
                 </button>
@@ -325,12 +333,9 @@ export default function FeeTable() {
               <button
                 onClick={() => setShowAllChains(v => !v)}
                 className="
-                  flex items-center gap-1
-                  font-mono text-[11px] px-3 py-1.5 rounded-md border
-                  bg-white dark:bg-transparent border-neutral-200 dark:border-neutral-700 
-                  text-neutral-600 dark:text-neutral-400
-                  hover:border-neutral-400 dark:hover:border-neutral-500
-                  transition-all duration-200 shrink-0
+                  flex items-center gap-1 font-bold
+                  font-mono text-[11px] px-3 py-1.5 rounded-md border-2
+                  bg-yellow-400 border-yellow-500 text-black shrink-0
                 "
               >
                 {showAllChains ? (
@@ -345,9 +350,9 @@ export default function FeeTable() {
       )}
 
       {/* ── Comparison table ─────────────────────────────────────────────── */}
-      <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-[#0a0a0a]">
-        <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-neutral-50 dark:bg-[#0f0f0f]">
-          <h2 className="font-mono text-[11px] text-neutral-900 dark:text-white tracking-widest uppercase">
+      <div className="border-2 border-blue-600 rounded-lg overflow-hidden bg-white dark:bg-slate-950">
+        <div className="px-4 py-3 border-b-2 border-blue-600 flex items-center justify-between bg-blue-600 text-white">
+          <h2 className="font-mono text-xs tracking-widest uppercase font-black">
             {selectedChain
               ? `${allChains.find(c => c.chainId === selectedChain)?.chain ?? 'CHAIN'} WITHDRAWAL — ${selectedCoin || '—'}`
               : `CHEAPEST ${selectedCoin || '—'} WITHDRAWAL BY EXCHANGE`
@@ -356,7 +361,7 @@ export default function FeeTable() {
           {selectedChain && (
             <button
               onClick={() => setSelectedChain(null)}
-              className="flex items-center gap-1.5 font-mono text-[11px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
+              className="flex items-center gap-1.5 font-mono text-[11px] bg-red-600 text-white px-2 py-1 rounded font-bold"
             >
               <X className="w-3.5 h-3.5" /> Clear
             </button>
@@ -364,77 +369,77 @@ export default function FeeTable() {
         </div>
 
         {!inputValue ? (
-          <div className="px-4 py-12 text-center font-mono text-sm text-neutral-500 dark:text-neutral-400">
+          <div className="px-4 py-12 text-center font-mono text-sm bg-blue-50 dark:bg-slate-900 text-blue-900 dark:text-blue-100 font-bold">
             Enter a coin symbol above to compare fees.
           </div>
         ) : loading ? (
-          <div className="px-4 py-12 text-center font-mono text-sm text-neutral-500 dark:text-neutral-400 animate-pulse">
+          <div className="px-4 py-12 text-center font-mono text-sm bg-blue-50 dark:bg-slate-900 text-blue-900 dark:text-blue-100 font-bold">
             Fetching live fee data…
           </div>
         ) : noData ? (
-          <div className="px-4 py-12 text-center font-mono text-sm text-neutral-500 dark:text-neutral-400">
-            No fee data found for <span className="font-semibold text-neutral-900 dark:text-white">{selectedCoin}</span>. Try another coin.
+          <div className="px-4 py-12 text-center font-mono text-sm bg-red-100 dark:bg-slate-900 text-red-900 dark:text-red-100 font-bold">
+            No fee data found for <span className="bg-red-600 text-white px-1.5 py-0.5 rounded">{selectedCoin}</span>. Try another coin.
           </div>
         ) : displayComparison.length === 0 && selectedChain ? (
-          <div className="px-4 py-12 text-center font-mono text-sm text-neutral-500 dark:text-neutral-400">
-            No exchanges in our database support{' '}
-            <span className="font-semibold text-neutral-900 dark:text-white">
+          <div className="px-4 py-12 text-center font-mono text-sm bg-amber-100 dark:bg-slate-900 text-amber-900 dark:text-amber-100 font-bold">
+            No exchanges support{' '}
+            <span className="bg-amber-600 text-white px-1.5 py-0.5 rounded">
               {allChains.find(c => c.chainId === selectedChain)?.chain ?? selectedChain}
             </span>{' '}
-            withdrawals for <span className="font-semibold text-neutral-900 dark:text-white">{selectedCoin}</span>.
+            withdrawals for <span className="bg-amber-600 text-white px-1.5 py-0.5 rounded">{selectedCoin}</span>.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-mono min-w-[600px]">
-              <thead className="bg-white dark:bg-[#0a0a0a]">
-                <tr className="border-b border-neutral-200 dark:border-neutral-800">
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase w-12">Rank</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Exchange</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">{chainColumnLabel}</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Fee</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase">Fee USD</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden md:table-cell">Min Withdraw</th>
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden lg:table-cell">Min Deposit</th> {/* NEW */}
-                  <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 tracking-widest text-[11px] font-normal uppercase hidden sm:table-cell">ETA</th>
+              <thead className="bg-slate-200 dark:bg-slate-800 border-b-2 border-blue-600">
+                <tr>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase w-14">Rank</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase">Exchange</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase">{chainColumnLabel}</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase">Fee</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase">Fee USD</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase hidden md:table-cell">Min Withdraw</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 border-r border-slate-300 dark:border-slate-700 tracking-widest text-[11px] font-black uppercase hidden lg:table-cell">Min Deposit</th>
+                  <th className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 tracking-widest text-[11px] font-black uppercase hidden sm:table-cell">ETA</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-                {displayComparison.map((row, i) => (
-                  <tr
-                    key={row.exchange}
-                    className="hover:bg-neutral-50 dark:hover:bg-neutral-900/30 transition-colors"
-                  >
-                    <td className="px-4 py-4">
-                      <span className="text-neutral-400 dark:text-neutral-500">
+              <tbody className="divide-y-2 divide-slate-200 dark:divide-slate-800 text-slate-950 dark:text-slate-50">
+                {displayComparison.map((row, i) => {
+                  const assignedColor = EXCHANGE_SOLID_COLORS[i % EXCHANGE_SOLID_COLORS.length];
+                  return (
+                    <tr key={row.exchange}>
+                      <td className="px-4 py-4 font-black border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-center">
                         {String(i + 1).padStart(2, '0')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 font-medium">{row.exchange}</td>
-                    <td className="px-4 py-4">
-                      <span className="border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 px-2.5 py-1 rounded-md text-[11px] whitespace-nowrap">
+                      </td>
+                      {/* Exchanges column has its unique solid background text configuration separate from the rest */}
+                      <td className={`px-4 py-4 font-black border-r border-slate-200 dark:border-slate-800 ${assignedColor}`}>
+                        {row.exchange}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 dark:border-slate-800 bg-indigo-600 text-white font-black">
                         {row.cheapestChain}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {row.withdrawFee === 0 ? (
-                        <span className="font-bold">FREE</span>
-                      ) : (
-                        <span>{row.withdrawFee} <span className="text-neutral-400 text-xs">{selectedCoin}</span></span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 hidden sm:table-cell">
-                      {row.withdrawFeeUSD != null ? `$${row.withdrawFeeUSD.toFixed(2)}` : '—'}
-                    </td>
-                    <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hidden md:table-cell">
-                      {row.minWithdraw} <span className="text-xs">{selectedCoin}</span>
-                    </td>
-                    {/* Min Deposit - NEW */}
-                    <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 whitespace-nowrap hidden lg:table-cell">
-                      {row.minDeposit} <span className="text-xs">{selectedCoin}</span>
-                    </td>
-                    <td className="px-4 py-4 text-neutral-500 dark:text-neutral-400 hidden sm:table-cell">~{row.arrivalMins}m</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 dark:border-slate-800 font-bold whitespace-nowrap bg-orange-100 dark:bg-orange-950 text-orange-950 dark:text-orange-100">
+                        {row.withdrawFee === 0 ? (
+                          <span className="bg-emerald-600 text-white px-2 py-0.5 rounded font-black">FREE</span>
+                        ) : (
+                          <span>{row.withdrawFee} <span className="text-xs font-normal">{selectedCoin}</span></span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap bg-teal-50 dark:bg-slate-900 text-teal-950 dark:text-teal-100 font-bold">
+                        {row.withdrawFeeUSD != null ? `$${row.withdrawFeeUSD.toFixed(2)}` : '—'}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap hidden md:table-cell bg-blue-50 dark:bg-slate-900 font-bold">
+                        {row.minWithdraw} <span className="text-xs font-normal">{selectedCoin}</span>
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap hidden lg:table-cell bg-fuchsia-50 dark:bg-slate-900 font-bold">
+                        {row.minDeposit} <span className="text-xs font-normal">{selectedCoin}</span>
+                      </td>
+                      <td className="px-4 py-4 hidden sm:table-cell bg-slate-100 dark:bg-slate-900 font-bold">
+                        ~{row.arrivalMins}m
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -445,20 +450,20 @@ export default function FeeTable() {
       {!loading && !noData && fullData && fullData.comparison.length > 0 && (
         <>
           {/* Expand / Collapse all controls */}
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">
+          <div className="flex items-center justify-between bg-slate-200 dark:bg-slate-800 p-3 rounded-lg border-2 border-slate-400">
+            <span className="font-mono text-xs bg-slate-700 text-white px-2 py-1 rounded tracking-widest uppercase font-black">
               Exchange Details
             </span>
             <div className="flex items-center gap-2">
               <button
                 onClick={expandAll}
-                className="font-mono text-[11px] px-3 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-all duration-200 flex items-center gap-1"
+                className="font-mono text-[11px] px-3 py-1.5 rounded-md bg-emerald-600 text-white border-2 border-emerald-700 flex items-center gap-1 font-black"
               >
                 Expand all <ChevronDown className="w-3 h-3" />
               </button>
               <button
                 onClick={collapseAll}
-                className="font-mono text-[11px] px-3 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-all duration-200 flex items-center gap-1"
+                className="font-mono text-[11px] px-3 py-1.5 rounded-md bg-red-600 text-white border-2 border-red-700 flex items-center gap-1 font-black"
               >
                 Collapse all <ChevronUp className="w-3 h-3" />
               </button>
@@ -466,7 +471,7 @@ export default function FeeTable() {
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {fullData.comparison.map(row => {
+            {fullData.comparison.map((row, index) => {
               const meta = exchanges.find(e => e.exchange === row.exchangeSlug);
               const isExpanded = !!expandedCards[row.exchangeSlug];
 
@@ -476,26 +481,26 @@ export default function FeeTable() {
 
               if (networksToShow.length === 0) return null;
 
-              // Summary info shown in collapsed header
               const cheapestNet = networksToShow[0];
+              const cardHeaderColor = EXCHANGE_SOLID_COLORS[index % EXCHANGE_SOLID_COLORS.length];
 
               return (
-                <div key={row.exchange} className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-[#0a0a0a]">
-                  {/* Card header — always visible, acts as toggle */}
+                <div key={row.exchange} className="border-2 border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-950">
+                  {/* Card header — always solid distinct background color */}
                   <button
                     onClick={() => toggleCard(row.exchangeSlug)}
-                    className="w-full px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-neutral-50 dark:bg-[#0f0f0f] hover:bg-neutral-100 dark:hover:bg-[#141414] transition-colors text-left"
+                    className={`w-full px-5 py-4 border-b-2 border-slate-700 flex items-center justify-between text-left ${cardHeaderColor}`}
                     aria-expanded={isExpanded}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="min-w-0">
-                        <h3 className="font-mono text-sm font-semibold text-neutral-900 dark:text-white">{row.exchange}</h3>
-                        <div className="flex items-center gap-2 mt-1 font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+                        <h3 className="font-mono text-base font-black uppercase tracking-wide">{row.exchange}</h3>
+                        <div className="flex items-center gap-2 mt-1 font-mono text-[11px] bg-black/20 text-white px-2 py-0.5 rounded font-bold">
                           {meta?.twitterHandle && <span>{meta.twitterHandle}</span>}
-                          {meta?.twitterHandle && <span className="text-neutral-300 dark:text-neutral-700">•</span>}
+                          {meta?.twitterHandle && <span>•</span>}
                           {meta?.p2p ? (
-                            <span className="flex items-center gap-1 text-neutral-700 dark:text-neutral-300">
-                              P2P <Check className="w-3 h-3" /> <span className="text-neutral-400">(min ${meta.p2pMinUSD})</span>
+                            <span className="flex items-center gap-1">
+                              P2P <Check className="w-3 h-3 stroke-[3]" /> (min ${meta.p2pMinUSD})
                             </span>
                           ) : (
                             <span>No P2P</span>
@@ -503,17 +508,14 @@ export default function FeeTable() {
                         </div>
                       </div>
 
-                      {/* Collapsed summary — cheapest network + fee */}
+                      {/* Collapsed summary */}
                       {!isExpanded && (
-                        <div className="flex items-center gap-2 ml-2 shrink-0">
-                          <span className="border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 px-2 py-0.5 rounded text-[10px] font-mono">
+                        <div className="flex items-center gap-2 ml-2 shrink-0 font-mono">
+                          <span className="bg-black text-white px-2 py-0.5 rounded text-[10px] font-black">
                             {cheapestNet?.chain ?? row.cheapestChain}
                           </span>
-                          <span className="font-mono text-[11px] text-neutral-900 dark:text-white font-semibold">
+                          <span className="bg-white text-black px-2 py-0.5 rounded text-[11px] font-black">
                             {row.withdrawFee === 0 ? 'FREE' : `${row.withdrawFee} ${selectedCoin}`}
-                          </span>
-                          <span className="font-mono text-[10px] text-neutral-400">
-                            {networksToShow.length} network{networksToShow.length !== 1 ? 's' : ''}
                           </span>
                         </div>
                       )}
@@ -525,81 +527,79 @@ export default function FeeTable() {
                           href={meta.website}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()} // don't toggle card when clicking Visit
-                          className="flex items-center gap-1.5 font-mono text-[11px] text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
+                          onClick={e => e.stopPropagation()}
+                          className="flex items-center gap-1 bg-white text-black px-2 py-1 rounded font-mono text-[11px] font-black"
                         >
                           Visit <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
-                      <span className="text-neutral-400 dark:text-neutral-500">
-                        {isExpanded
-                          ? <ChevronUp className="w-4 h-4" />
-                          : <ChevronDown className="w-4 h-4" />
-                        }
+                      <span className="bg-black/20 p-1 rounded text-white">
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </span>
                     </div>
                   </button>
 
-                  {/* Network rows — only rendered when expanded */}
+                  {/* Network rows — expanded detailed view */}
                   {isExpanded && (
-                    <div className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
+                    <div className="divide-y-2 divide-slate-200 dark:divide-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-950 dark:text-slate-50">
                       {networksToShow.map((n, i) => {
                         const rowKey = `${n.chainId ?? n.chain}-${i}`;
                         const isCheapest = !selectedChain && i === 0;
 
                         return (
-                          <div key={rowKey} className="px-5 py-4">
+                          <div key={rowKey} className="px-5 py-4 border-l-4 border-indigo-600 bg-white dark:bg-slate-950">
                             <div className="flex items-center gap-3 mb-4 min-w-0">
                               {isCheapest && (
-                                <span className="shrink-0 text-[10px] bg-neutral-900 text-white dark:bg-white dark:text-black font-semibold px-2 py-0.5 rounded-sm font-mono tracking-wider">
+                                <span className="shrink-0 text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded tracking-wider">
                                   CHEAPEST
                                 </span>
                               )}
-                              <span className="font-mono text-sm font-medium truncate text-neutral-900 dark:text-neutral-200">
+                              {/* Chain name explicitly given a unique solid highlight color */}
+                              <span className="font-mono text-sm font-black tracking-wide px-3 py-1 bg-indigo-600 text-white rounded truncate">
                                 {n.chain}
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-  {/* Fee */}
-  <div className="space-y-1">
-    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Fee</p>
-    <p className="font-mono text-sm font-medium">
-      {n.withdrawFee === 0 ? 'FREE' : n.withdrawFee}
-    </p>
-    {n.withdrawFee !== 0 && (
-      <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
-        {selectedCoin}
-        {n.withdrawFeeUSD != null && (
-          <span className="ml-1 text-neutral-400 dark:text-neutral-500">(~${n.withdrawFeeUSD.toFixed(2)})</span>
-        )}
-      </p>
-    )}
-  </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {/* Fee Column -> Distinct Solid Orange Background */}
+                              <div className="space-y-1 p-2 bg-orange-500 text-white rounded border border-orange-700">
+                                <p className="font-mono text-[10px] tracking-widest uppercase font-black text-orange-100">Withdraw Fee</p>
+                                <p className="font-mono text-sm font-black">
+                                  {n.withdrawFee === 0 ? <span className="bg-white text-emerald-700 px-1.5 py-0.2 rounded font-black">FREE</span> : n.withdrawFee}
+                                </p>
+                                {n.withdrawFee !== 0 && (
+                                  <p className="font-mono text-[11px] text-orange-200 font-bold">
+                                    {selectedCoin}
+                                    {n.withdrawFeeUSD != null && (
+                                      <span className="ml-1 text-white block">(${n.withdrawFeeUSD.toFixed(2)})</span>
+                                    )}
+                                  </p>
+                                )}
+                              </div>
 
-  {/* Min Withdraw */}
-  <div className="space-y-1">
-    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Min Withdraw</p>
-    <p className="font-mono text-sm font-medium">{n.minWithdraw}</p>
-    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{selectedCoin}</p>
-  </div>
+                              {/* Min Withdraw Column -> Distinct Solid Cyan/Blue Background */}
+                              <div className="space-y-1 p-2 bg-cyan-600 text-white rounded border border-cyan-800">
+                                <p className="font-mono text-[10px] tracking-widest uppercase font-black text-cyan-100">Min Withdraw</p>
+                                <p className="font-mono text-sm font-black">{n.minWithdraw}</p>
+                                <p className="font-mono text-[11px] text-cyan-200 font-bold">{selectedCoin}</p>
+                              </div>
 
-  {/* Min Deposit - NEW */}
-  <div className="space-y-1">
-    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">Min Deposit</p>
-    <p className="font-mono text-sm font-medium">{n.minDeposit}</p>
-    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{selectedCoin}</p>
-  </div>
+                              {/* Min Deposit Column -> Distinct Solid Fuchsia/Pink Background */}
+                              <div className="space-y-1 p-2 bg-fuchsia-600 text-white rounded border border-fuchsia-800">
+                                <p className="font-mono text-[10px] tracking-widest uppercase font-black text-fuchsia-100">Min Deposit</p>
+                                <p className="font-mono text-sm font-black">{n.minDeposit}</p>
+                                <p className="font-mono text-[11px] text-fuchsia-200 font-bold">{selectedCoin}</p>
+                              </div>
 
-  {/* ETA */}
-  <div className="space-y-1">
-    <p className="font-mono text-[10px] text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">ETA</p>
-    <p className="font-mono text-sm font-medium">~{n.arrivalMins}</p>
-    <p className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
-      {n.arrivalMins === 1 ? 'minute' : 'minutes'}
-    </p>
-  </div>
-</div>
+                              {/* ETA Column -> Distinct Solid Slate Background */}
+                              <div className="space-y-1 p-2 bg-slate-700 text-white rounded border border-slate-800">
+                                <p className="font-mono text-[10px] tracking-widest uppercase font-black text-slate-300">ETA</p>
+                                <p className="font-mono text-sm font-black">~{n.arrivalMins}m</p>
+                                <p className="font-mono text-[11px] text-slate-400 font-bold">
+                                  {n.arrivalMins === 1 ? 'minute' : 'minutes'}
+                                </p>
+                              </div>
+                            </div>
                           </div>
                         );
                       })}

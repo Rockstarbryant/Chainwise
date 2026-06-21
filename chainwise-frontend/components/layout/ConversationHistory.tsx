@@ -15,7 +15,7 @@ interface Conversation {
 
 interface Props {
   onNewChat: () => void;
-  refreshTrigger?: number; // increment this from the parent to force a reload
+  refreshTrigger?: number; 
 }
 
 export default function ConversationHistory({ onNewChat, refreshTrigger }: Props) {
@@ -35,15 +35,11 @@ export default function ConversationHistory({ onNewChat, refreshTrigger }: Props
     } catch {}
   }, [getToken]);
 
-  // Load on mount / auth change
   useEffect(() => {
     if (!isAuthenticated) return;
     loadConversations();
   }, [isAuthenticated, loadConversations]);
 
-  // Reload whenever the parent signals a new conversation was created or title updated.
-  // Use a small delay so the backend pre-save hook (which writes the title) has
-  // fully committed the document before we re-fetch the list.
   useEffect(() => {
     if (!isAuthenticated || refreshTrigger === undefined || refreshTrigger === 0) return;
     const t = setTimeout(() => loadConversations(), 300);
@@ -65,31 +61,34 @@ export default function ConversationHistory({ onNewChat, refreshTrigger }: Props
 
   if (!isAuthenticated) {
     return (
-      <div className="px-3 py-4">
-        <p className="font-sans text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase px-2 mb-2">HISTORY</p>
-        <p className="font-sans text-sm text-zinc-500 dark:text-zinc-400 px-2 leading-relaxed">
-          Sign in to save and access your conversation history.
+      <div className="px-3 py-4 bg-red-100 dark:bg-red-950 border-y-4 border-red-600">
+        <p className="font-sans text-xs font-black text-red-900 dark:text-red-300 tracking-widest uppercase mb-2 border-b-2 border-red-900 pb-1">HISTORY</p>
+        <p className="font-sans text-sm font-bold text-red-800 dark:text-red-200 leading-relaxed">
+          SIGN IN TO SAVE AND ACCESS YOUR CONVERSATION HISTORY.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="px-3 py-2 flex-1 overflow-y-auto min-h-0">
-      <div className="flex items-center justify-between px-2 mb-2">
-        <p className="font-sans text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase">HISTORY</p>
+    <div className="px-3 py-4 flex-1 overflow-y-auto min-h-0 bg-slate-200 dark:bg-slate-900">
+      <div className="flex items-center justify-between mb-4 border-b-4 border-black pb-2">
+        <p className="font-sans text-xs font-black text-black dark:text-white tracking-widest uppercase">HISTORY</p>
         <button
           onClick={onNewChat}
-          className="text-zinc-500 dark:text-zinc-400"
+          className="bg-black text-white p-1 border-2 border-black touch-manipulation"
+          title="New Chat"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className="w-4 h-4" />
         </button>
       </div>
 
       {conversations.length === 0 ? (
-        <p className="font-sans text-sm text-zinc-500 dark:text-zinc-400 px-2">No conversations yet.</p>
+        <p className="font-sans text-sm font-bold text-slate-600 dark:text-slate-400 p-2 border-2 border-slate-400 border-dashed text-center uppercase">
+          NO CONVERSATIONS YET
+        </p>
       ) : (
-        <div className="space-y-0.5">
+        <div className="space-y-2">
           {conversations.map(conv => {
             const isActive = pathname.includes(conv._id);
             return (
@@ -97,18 +96,20 @@ export default function ConversationHistory({ onNewChat, refreshTrigger }: Props
                 key={conv._id}
                 href={`/chat/${conv._id}`}
                 className={`
-                  flex items-center gap-2 px-2 py-2 rounded-lg transition-colors duration-200
+                  flex items-center gap-2 px-2.5 py-2.5 border-2 
                   ${isActive
-                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500'
-                    : 'text-zinc-500 dark:text-zinc-400'
+                    ? 'bg-fuchsia-600 text-white border-fuchsia-900'
+                    : 'bg-white dark:bg-slate-800 text-black dark:text-white border-black dark:border-slate-500'
                   }
                 `}
               >
-                <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="font-sans text-sm truncate flex-1">{conv.title}</span>
+                <div className={`p-1 border-2 ${isActive ? 'border-white/50' : 'border-black dark:border-slate-500'}`}>
+                  <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                </div>
+                <span className="font-sans font-bold text-[13px] truncate flex-1 uppercase">{conv.title}</span>
                 <button
                   onClick={(e) => deleteConversation(conv._id, e)}
-                  className="text-zinc-400 dark:text-zinc-500"
+                  className="bg-red-600 text-white p-1.5 border-2 border-red-900 touch-manipulation"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

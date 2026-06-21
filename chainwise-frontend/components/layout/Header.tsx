@@ -16,54 +16,44 @@ export default function Header({ anonCount = 0, anonLimit = 3, onNewChat }: Prop
 
   return (
     <header className="
-      h-14
-      flex items-center justify-between
+      h-14 flex items-center justify-between
       px-3 sm:px-5
-      border-b border-zinc-200 dark:border-zinc-800
-      bg-white/90 dark:bg-zinc-950/90
-      backdrop-blur-sm
+      border-b-4 border-blue-900
+      bg-blue-600 text-white
     ">
-      {/* Left — hamburger + mobile logo */}
       <div className="flex items-center gap-3">
         <button
           onClick={onOpen}
           aria-label="Open menu"
           className="
-            p-2 -ml-1 rounded-lg
-            text-zinc-500 dark:text-zinc-400
-            hover:bg-zinc-100 dark:hover:bg-zinc-800
-            active:bg-zinc-200 dark:active:bg-zinc-700
-            transition-colors duration-150
+            p-2 bg-black text-white border-2 border-black
             touch-manipulation
           "
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Logo — mobile only */}
         <div className="flex items-center gap-2 md:hidden">
-          <div className="w-7 h-7 rounded-md bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center">
-            <Zap className="w-3.5 h-3.5 text-zinc-950" />
+          <div className="w-8 h-8 bg-yellow-400 border-2 border-black flex items-center justify-center">
+            <Zap className="w-4 h-4 text-black font-black" />
           </div>
-          <span className="font-sans font-bold text-emerald-600 dark:text-emerald-500 text-sm tracking-[0.12em]">
+          <span className="font-sans font-black text-white text-sm tracking-[0.15em] uppercase">
             CHAINWISE
           </span>
         </div>
       </div>
 
-      {/* Centre — status pill */}
-      <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="font-sans text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wide uppercase hidden sm:inline">
-          Agent Online
+      <div className="flex items-center gap-2 bg-white text-black px-2 py-1.5 border-2 border-black">
+        <span className="w-2.5 h-2.5 bg-emerald-500 border-2 border-black animate-pulse" />
+        <span className="font-sans text-[10px] font-black tracking-widest uppercase hidden sm:inline">
+          AGENT ONLINE
         </span>
       </div>
 
-      {/* Right — anon counter + new chat */}
       <div className="flex items-center gap-2 sm:gap-3">
         {!isAuthenticated && (
-          <span className="font-sans text-xs text-zinc-400 dark:text-zinc-500 hidden sm:inline">
-            {anonLimit - anonCount} free {anonLimit - anonCount === 1 ? 'chat' : 'chats'} left
+          <span className="font-sans font-black text-[10px] bg-black text-white px-2 py-1.5 border-2 border-blue-900 tracking-widest uppercase hidden sm:inline">
+            {anonLimit - anonCount} FREE {anonLimit - anonCount === 1 ? 'CHAT' : 'CHATS'} LEFT
           </span>
         )}
         {onNewChat && (
@@ -71,19 +61,15 @@ export default function Header({ anonCount = 0, anonLimit = 3, onNewChat }: Prop
             onClick={onNewChat}
             className="
               flex items-center gap-1.5
-              px-2.5 sm:px-3 py-1.5 rounded-lg
-              font-sans text-xs font-medium
-              text-zinc-500 dark:text-zinc-400
-              hover:text-zinc-900 dark:hover:text-zinc-100
-              hover:bg-zinc-100 dark:hover:bg-zinc-800
-              active:bg-zinc-200 dark:active:bg-zinc-700
-              transition-colors duration-150
-              uppercase tracking-wide
+              px-3 py-1.5 border-2 border-black
+              bg-amber-400 text-black
+              font-sans text-xs font-black
+              uppercase tracking-widest
               touch-manipulation
             "
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">New Chat</span>
+            <Plus className="w-4 h-4 font-black" />
+            <span className="hidden sm:inline">NEW CHAT</span>
           </button>
         )}
       </div>
