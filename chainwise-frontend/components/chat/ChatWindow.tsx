@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bot } from 'lucide-react';
 import Message from './Message';
@@ -18,7 +18,8 @@ interface Props {
 }
 
 export default function ChatWindow({ conversationId }: Props) {
-  const router = useRouter();
+  const router   = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
   const { triggerHistoryRefresh } = useSidebarRefresh();
 
@@ -31,9 +32,41 @@ export default function ChatWindow({ conversationId }: Props) {
     hasSentMessage,
   } = useChat(conversationId);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
   const [editIndex,   setEditIndex]   = useState<number | null>(null);
   const [editPrefill, setEditPrefill] = useState<string | undefined>(undefined);
+
+  // ── Auto-prompt from ?q= (e.g. "Ask Agent" button on Giveaways page) ────────
+  // Store the prompt in a ref immediately so URL cleanup doesn't lose it,
+  // then fire it once chat is ready and the user is authenticated.
+  const pendingPrompt    = useRef<string | null>(null);
+  const autoPromptFired  = useRef(false);
+
+  // Step 1 — capture ?q= into ref on mount, clean the URL right away
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q && !autoPromptFired.current) {
+      pendingPrompt.current = decodeURIComponent(q);
+      // Replace URL so refresh / back-nav doesn't re-fire the prompt
+      router.replace(conversationId ? `/chat/${conversationId}` : '/chat');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Step 2 — fire the prompt once the chat is ready, auth gate is closed,
+  //           and the user is authenticated
+  useEffect(() => {
+    if (autoPromptFired.current)   return;
+    if (!pendingPrompt.current)    return;
+    if (loading || loadingHistory) return;
+    if (showAuthGate)              return;
+    if (!isAuthenticated)          return;
+
+    autoPromptFired.current = true;
+    const prompt = pendingPrompt.current;
+    pendingPrompt.current = null;
+    send(prompt);
+  }, [loading, loadingHistory, showAuthGate, isAuthenticated, send]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -95,8 +128,8 @@ export default function ChatWindow({ conversationId }: Props) {
     !loading &&
     !createdConversationId;
 
-  const hasStreamingMessage = messages.some(m => m.isStreaming);
-  const showTypingIndicator = loading && !hasStreamingMessage;
+  const hasStreamingMessage  = messages.some(m => m.isStreaming);
+  const showTypingIndicator  = loading && !hasStreamingMessage;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-sky-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
@@ -133,11 +166,9 @@ export default function ChatWindow({ conversationId }: Props) {
             </div>
           )}
 
-          {/* Empty state */}
+          {/* Empty state / suggested prompts */}
           {showSuggestedPrompts && (
-            <SuggestedPrompts onSelect={(prompt) => {
-              send(prompt);
-            }} />
+            <SuggestedPrompts onSelect={(prompt) => send(prompt)} />
           )}
 
           {/* Messages */}

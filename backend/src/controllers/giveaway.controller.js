@@ -2,23 +2,26 @@
  * backend/src/controllers/giveaway.controller.js
  *
  * Routes:
- *   GET  /api/giveaways           → paginated list (public)
- *   GET  /api/giveaways/stats     → per-exchange counts (public)
- *   POST /api/giveaways/scan      → trigger live scan (admin only)
+ *   GET  /api/giveaways            → paginated list (public) — now includes telegram posts
+ *   GET  /api/giveaways/stats      → per-exchange counts (public)
+ *   POST /api/giveaways/scan       → trigger live X scan (admin only)
+ *   POST /api/giveaways/scan/telegram → trigger Telegram scan (admin only)
  */
 
-const Giveaway                              = require('../models/Giveaway');
+const Giveaway                                = require('../models/Giveaway');
 const { scanAndStoreGiveaways, CEX_ACCOUNTS } = require('../services/twitter');
-const { success, error }                    = require('../../utils/response');
-const logger                                = require('../../utils/logger');
+const { scanTelegramGiveaways }               = require('../services/telegramGiveaway');
+const { success, error }                      = require('../../utils/response');
+const logger                                  = require('../../utils/logger');
 
-// ─── GET /api/giveaways ───────────────────────────────────────────────────────
+// ─── GET /api/giveaways ────────────────────────────────────────────────────────
 const getGiveaways = async (req, res) => {
   try {
     const {
       exchange      = 'all',
+      source        = 'all',        // NEW: 'all' | 'twitter' | 'telegram'
       minConfidence = '0.3',
-      sort          = 'confidence',   // confidence | recent | prize
+      sort          = 'confidence',
       limit         = '20',
       page          = '1',
     } = req.query;
@@ -30,6 +33,11 @@ const getGiveaways = async (req, res) => {
 
     if (exchange && exchange !== 'all') {
       query.exchange = exchange.toLowerCase();
+    }
+
+    // Filter by source when explicitly requested
+    if (source && source !== 'all') {
+      query.source = source.toLowerCase();
     }
 
     const sortMap = {
@@ -78,7 +86,7 @@ const getGiveaways = async (req, res) => {
   }
 };
 
-// ─── GET /api/giveaways/stats ─────────────────────────────────────────────────
+// ─── GET /api/giveaways/stats ──────────────────────────────────────────────────
 const getGiveawayStats = async (req, res) => {
   try {
     const stats = await Giveaway.aggregate([
@@ -91,12 +99,18 @@ const getGiveawayStats = async (req, res) => {
           highConfCount: { $sum: { $cond: [{ $gte: ['$confidence', 0.6] }, 1, 0] } },
           displayName:   { $first: '$exchangeDisplayName' },
           latestTweet:   { $max:  '$tweetCreatedAt' },
+          // tally by source
+          twitterCount:  { $sum: { $cond: [{ $eq: ['$source', 'twitter']  }, 1, 0] } },
+          telegramCount: { $sum: { $cond: [{ $eq: ['$source', 'telegram'] }, 1, 0] } },
         },
       },
       { $sort: { count: -1 } },
     ]);
 
-    const totalActive = stats.reduce((acc, s) => acc + s.count, 0);
+    const totalActive   = stats.reduce((acc, s) => acc + s.count, 0);
+    const twitterTotal  = stats.reduce((acc, s) => acc + (s.twitterCount  || 0), 0);
+    const telegramTotal = stats.reduce((acc, s) => acc + (s.telegramCount || 0), 0);
+
     const lastScanDoc = await Giveaway
       .findOne({})
       .sort({ scannedAt: -1 })
@@ -106,6 +120,8 @@ const getGiveawayStats = async (req, res) => {
     return success(res, {
       stats,
       totalActive,
+      twitterTotal,
+      telegramTotal,
       lastScan: lastScanDoc?.scannedAt || null,
     });
   } catch (err) {
@@ -114,7 +130,7 @@ const getGiveawayStats = async (req, res) => {
   }
 };
 
-// ─── POST /api/giveaways/scan (admin only) ────────────────────────────────────
+// ─── POST /api/giveaways/scan (admin — X/Twitter) ─────────────────────────────
 const triggerScan = async (req, res) => {
   const { exchange } = req.query;
 
@@ -123,7 +139,7 @@ const triggerScan = async (req, res) => {
   }
 
   try {
-    logger.info(`[Giveaway] Admin triggered scan — exchange: ${exchange || 'all'}`);
+    logger.info(`[Giveaway] Admin triggered X scan — exchange: ${exchange || 'all'}`);
     const result = await scanAndStoreGiveaways({ exchangeFilter: exchange });
 
     if (result.rateLimited) {
@@ -132,7 +148,7 @@ const triggerScan = async (req, res) => {
 
     return success(res, {
       ...result,
-      message: `Scan complete. ${result.added} new giveaways stored.`,
+      message: `X scan complete. ${result.added} new giveaways stored.`,
     });
   } catch (err) {
     logger.error('[Giveaway] triggerScan error:', err);
@@ -140,4 +156,23 @@ const triggerScan = async (req, res) => {
   }
 };
 
-module.exports = { getGiveaways, getGiveawayStats, triggerScan };
+// ─── POST /api/giveaways/scan/telegram (admin — Telegram) ─────────────────────
+const triggerTelegramScan = async (req, res) => {
+  const { exchange } = req.query;
+
+  try {
+    logger.info(`[Giveaway] Admin triggered Telegram scan — exchange: ${exchange || 'all'}`);
+    // bypassCache=true so admins can force a fresh scan immediately
+    const result = await scanTelegramGiveaways({ exchangeFilter: exchange, bypassCache: true });
+
+    return success(res, {
+      ...result,
+      message: `Telegram scan complete. ${result.added} new giveaways stored.`,
+    });
+  } catch (err) {
+    logger.error('[Giveaway] triggerTelegramScan error:', err);
+    return error(res, err.message || 'Telegram scan failed', 500);
+  }
+};
+
+module.exports = { getGiveaways, getGiveawayStats, triggerScan, triggerTelegramScan };

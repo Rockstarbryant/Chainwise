@@ -1,4 +1,18 @@
-import mongoose from 'mongoose';
+/**
+ * backend/src/models/Giveaway.js
+ *
+ * Updated: added `source` field ('twitter' | 'telegram') so posts from
+ * both pipelines share the same collection without clashing.
+ *
+ * Note: tweetId is used as the universal unique message ID for both sources.
+ *  - Twitter: the tweet ID string   e.g. "1234567890123456789"
+ *  - Telegram: "<channel_handle>_<message_id>"  e.g. "binance_announcements_5812"
+ *
+ * The tweetId unique index therefore guarantees no duplicates across runs
+ * regardless of source.
+ */
+
+const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
@@ -12,50 +26,64 @@ const RequirementSchema = new Schema(
 
 const GiveawaySchema = new Schema(
   {
+    // ─── Source ──────────────────────────────────────────────────────────────
+    source: {
+      type:    String,
+      enum:    ['twitter', 'telegram'],
+      default: 'twitter',
+      index:   true,
+    },
+
     // ─── Identity ────────────────────────────────────────────────────────────
-    //tweetId:             { type: String, required: true, unique: true },
+    tweetId:             { type: String, required: true, unique: true },
     exchange:            { type: String, required: true, lowercase: true, trim: true },
-    exchangeHandle:      { type: String },           // "Bybit_Official"
-    exchangeDisplayName: { type: String },           // "Bybit"
-    tweetUrl:            { type: String },
+    exchangeHandle:      { type: String },
+    exchangeDisplayName: { type: String },
+    tweetUrl:            { type: String },   // works for both tweet URLs and t.me links
     tweetText:           { type: String, required: true },
     authorName:          { type: String },
     authorHandle:        { type: String },
 
     // ─── Parsed Content ──────────────────────────────────────────────────────
-    prizePool:           { type: String, default: null },    // "$10,000 USDT"
-    prizeAmountUSD:      { type: Number, default: 0 },       // numeric estimate
-    coins:               [{ type: String }],                 // ["USDT","BNB"]
-    requirements:        [RequirementSchema],                // structured
-    requirementsRaw:     [{ type: String }],                 // plain text list
-    endDateRaw:          { type: String, default: null },    // mentioned deadline if any
-    hashtags:            [{ type: String }],                 // extracted hashtags
+    prizePool:       { type: String, default: null },
+    prizeAmountUSD:  { type: Number, default: 0 },
+    coins:           [{ type: String }],
+    requirements:    [RequirementSchema],
+    requirementsRaw: [{ type: String }],
+    endDateRaw:      { type: String, default: null },
+    hashtags:        [{ type: String }],
+
+    embeddedLinks: [{ text: String, url: String }],  // NEW
+    telegramHtml: { type: String },                   // NEW - for rich rendering
+    isFreeToEnter: { type: Boolean, default: false }, // NEW - computed
+    effortLevel: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' }, // NEW
 
     // ─── Confidence ──────────────────────────────────────────────────────────
-    confidence:          { type: Number, default: 0, min: 0, max: 1 },
-    confidenceScore:     { type: Number, default: 0, min: 0, max: 100 },
-    keywordsMatched:     [{ type: String }],
-    isVerifiedGiveaway:  { type: Boolean, default: false },  // confidence >= 0.6
+    confidence:         { type: Number, default: 0, min: 0, max: 1 },
+    confidenceScore:    { type: Number, default: 0, min: 0, max: 100 },
+    keywordsMatched:    [{ type: String }],
+    isVerifiedGiveaway: { type: Boolean, default: false },
 
-    // ─── Twitter Metrics ─────────────────────────────────────────────────────
-    likeCount:           { type: Number, default: 0 },
-    retweetCount:        { type: Number, default: 0 },
-    replyCount:          { type: Number, default: 0 },
-    impressionCount:     { type: Number, default: 0 },
+    // ─── Metrics (Twitter only; zeroed for Telegram) ─────────────────────────
+    likeCount:       { type: Number, default: 0 },
+    retweetCount:    { type: Number, default: 0 },
+    replyCount:      { type: Number, default: 0 },
+    impressionCount: { type: Number, default: 0 },
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
-    tweetCreatedAt:      { type: Date },
-    scannedAt:           { type: Date, default: Date.now },
-    expiresAt:           { type: Date },   // TTL index — auto-remove after 7 days
-    isActive:            { type: Boolean, default: true },
+    tweetCreatedAt: { type: Date },
+    scannedAt:      { type: Date, default: Date.now },
+    expiresAt:      { type: Date },
+    isActive:       { type: Boolean, default: true },
   },
   { timestamps: true }
 );
 
-// ─── Indexes ─────────────────────────────────────────────────────────────────
+// ─── Indexes ──────────────────────────────────────────────────────────────────
 GiveawaySchema.index({ tweetId: 1 }, { unique: true });
 GiveawaySchema.index({ exchange: 1, tweetCreatedAt: -1 });
 GiveawaySchema.index({ isActive: 1, confidence: -1 });
-GiveawaySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL auto-delete
+GiveawaySchema.index({ source: 1, isActive: 1, confidence: -1 });   // for Telegram queries
+GiveawaySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });  // TTL auto-delete
 
-export default mongoose.model('Giveaway', GiveawaySchema);
+module.exports = mongoose.model('Giveaway', GiveawaySchema);

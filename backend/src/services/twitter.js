@@ -275,13 +275,13 @@ async function getGiveawaysForAgent(exchange = null) {
   const docs = await Giveaway
     .find(query)
     .sort({ confidence: -1, tweetCreatedAt: -1 })
-    .limit(10)
+    .limit(15)           // bumped from 10 to show more results
     .lean();
 
   if (!docs.length) {
     return {
       found:   false,
-      message: 'No active giveaways in cache. A background scan runs every 2 hours.',
+      message: 'No active giveaways in cache. Twitter scans every 2 hours, Telegram every 24 hours.',
     };
   }
 
@@ -289,15 +289,20 @@ async function getGiveawaysForAgent(exchange = null) {
     found:     true,
     count:     docs.length,
     giveaways: docs.map(g => ({
+      source:       g.source || 'twitter',           // ← include source
       exchange:     g.exchangeDisplayName,
-      tweetUrl:     g.tweetUrl,
+      postUrl:      g.telegramMessageUrl || g.tweetUrl,   // ← telegram-aware
+      channel:      g.telegramChannel || g.authorHandle,
       prizePool:    g.prizePool || 'Prize not specified',
       coins:        g.coins,
-      requirements: g.requirementsRaw?.length ? g.requirementsRaw : ['Check the tweet for details'],
+      requirements: g.requirementsRaw?.length
+        ? g.requirementsRaw
+        : ['Check the post for details'],
       postedAt:     g.tweetCreatedAt,
       confidence:   `${Math.round(g.confidence * 100)}%`,
       likes:        g.likeCount,
-      retweets:     g.retweetCount,
+      retweets:     g.retweetCount || g.forwardCount,
+      exampleSteps: generateExampleSteps(g), // helper
     })),
   };
 }

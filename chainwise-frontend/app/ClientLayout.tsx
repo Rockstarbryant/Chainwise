@@ -1,10 +1,6 @@
 'use client';
 
 // app/ClientLayout.tsx
-// Wraps every page with the sidebar + context providers.
-// On non-chat pages, also renders GlobalHeader so the hamburger is always
-// accessible and the sidebar can be opened from any page in the app.
-
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
@@ -16,9 +12,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
-  // Chat pages (/chat and /chat/[id]) have their own Header baked into
-  // ChatWindow. Every other route needs GlobalHeader so the sidebar toggle
-  // and branding are always present.
   const isChatPage = pathname === '/chat' || pathname.startsWith('/chat/');
 
   return (
@@ -28,20 +21,24 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         onOpen={() => setSidebarOpen(true)}
         onClose={() => setSidebarOpen(false)}
       >
-        {/* Sidebar is always mounted; it hides/shows via CSS transforms */}
         <Sidebar
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
 
         {/*
-         * Main content column:
-         * - flex-col so GlobalHeader stacks above <children>
-         * - overflow-hidden on the column; individual pages control their
-         *   own scrolling (the homepage and other content pages set
-         *   overflow-y-auto on their root div)
+         * Chat pages: overflow-hidden + h-screen so ChatWindow can manage
+         *             its own internal scroll with h-full / flex-1.
+         * Other pages: overflow-y-auto so long pages (giveaways, fees, etc)
+         *             scroll normally.
          */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <main
+          className={
+            isChatPage
+              ? 'flex-1 flex flex-col min-w-0 overflow-hidden h-screen'
+              : 'flex-1 flex flex-col min-w-0 overflow-y-auto overflow-x-hidden'
+          }
+        >
           {!isChatPage && <GlobalHeader />}
           {children}
         </main>

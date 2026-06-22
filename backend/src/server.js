@@ -128,6 +128,10 @@ logger.info('✅ Environment variables validated');
   const { startGiveawayScanCron } = require('./jobs/giveawayScan');
   startGiveawayScanCron();
 
+   // ── Telegram Giveaway Scanner (24-hour cycle, free — no API key) ──
+   const { startTelegramGiveawayScanCron } = require('./jobs/telegramGiveawayScan');
+  startTelegramGiveawayScanCron();
+
   // Start Telegram Bot if token is provided
 // Start Telegram Bot if token is provided
 try {
@@ -145,6 +149,7 @@ const shutdown = async (signal) => {
 
   try { const { stopCron } = require('./jobs/cronJob'); stopCron(); } catch (_) {}
   try { const { stopGiveawayScanCron } = require('./jobs/giveawayScan'); stopGiveawayScanCron(); } catch (_) {}
+   try { const { stopTelegramGiveawayScanCron } = require('./jobs/telegramGiveawayScan'); stopTelegramGiveawayScanCron(); } catch (_) {}
   try { 
     const syncMod = require('./jobs/syncQueue'); 
     if (typeof syncMod.stopWorker === 'function') syncMod.stopWorker();

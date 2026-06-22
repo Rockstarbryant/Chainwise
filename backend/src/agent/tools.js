@@ -119,25 +119,58 @@ const tools = [
 
   
   {
-    type: 'function',
-    function: {
-      name: 'scan_giveaways',
-      description: `Retrieve active crypto giveaways from major CEX exchanges.
-  Returns prize pool, exact participation requirements (follow/repost/reply), tweet link, confidence score.
-  Reads from a MongoDB cache updated every 2 hours — never calls Twitter live per query.
-  Use when user asks about: giveaways, airdrops, free crypto, how to win on Binance, etc.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          exchange: {
-            type: 'string',
-            description: 'Optional filter: binance, bybit, kucoin, bitget, gateio, coinex, okx, htx, mexc, cryptocom',
-          },
+  type: 'function',
+  function: {
+    name: 'scan_giveaways',
+    description: `Retrieve active crypto giveaways from major CEX exchanges.
+Returns prize pool, participation requirements (follow/repost/reply), post link, confidence score.
+Sources: official X/Twitter accounts (scanned every 2h) AND official Telegram channels (scanned every 24h).
+Reads from MongoDB cache — never calls Twitter or Telegram live per query.
+Use when user asks about: giveaways, airdrops, free crypto, promotions, how to win on Binance, etc.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        exchange: {
+          type: 'string',
+          description: 'Optional filter: binance, bybit, kucoin, bitget, gateio, coinex, okx, htx, mexc, cryptocom',
         },
-        required: [],
       },
+      required: [],
     },
   },
+},
+
+{
+  type: 'function',
+  function: {
+    name: 'get_giveaway_details',
+    description: 'Get full details + participation guide for a specific giveaway. Use when user asks about a particular post.',
+    parameters: {
+      type: 'object',
+      properties: {
+        giveawayId: { type: 'string', description: 'tweetId from scan_giveaways result' },
+        exchange: { type: 'string' } // fallback
+      },
+      required: ['giveawayId']
+    }
+  }
+},
+
+{
+  type: 'function',
+  function: {
+    name: 'recommend_giveaways',
+    description: 'Recommend best giveaways for user profile (free vs paid, by exchange, effort level).',
+    parameters: {
+      type: 'object',
+      properties: {
+        exchange: { type: 'string' },
+        userBalance: { type: 'number', description: 'Optional: user USDT balance' },
+        preferFree: { type: 'boolean', default: true }
+      }
+    }
+  }
+},
 
   {
     type: 'function',
@@ -547,6 +580,13 @@ For greetings, respond with a SHORT welcome message (2-3 lines max). Example:
 "Hey! I'm ChainWise — I help you find cheapest withdrawal routes, P2P rates, bridge paths, and more. What are you working on?"
 
 Do NOT attempt to "guess" what the user wants from a greeting.
+
+##When user asks about giveaways:
+Call scan_giveaways or recommend_giveaways first.
+For specific posts → get_giveaway_details.
+Always classify as Free / Low Effort vs requires deposit/trading.
+Give numbered participation steps + direct clickable links.
+Warn: Never send money to anyone claiming to help with giveaways.
 
 ## WHEN TO ASK FOR CLARIFICATION (BEFORE calling any tool)
 

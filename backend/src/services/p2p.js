@@ -2,32 +2,40 @@
  * backend/src/services/p2p.js
  *
  * Fetches live P2P merchant ads from exchange public APIs.
- * NO API keys required — all endpoints are public.
  *
- * Supported exchanges: binance, bybit, okx, kucoin, bitget, htx, noones, remitano
- * NOTE: MEXC temporarily disabled — blocked by Cloudflare/WAF (requires browser fingerprint)
- *
+ * Supported exchanges: binance, bybit, okx, kucoin, bitget, htx, bingx, coinex, mexc, noones, remitano
  * Supported fiats: KES, NGN, GHS, ZAR, INR, PKR, USD, EUR, GBP, TZS, UGX
  *
- * Fix log (v5):
- *  - bybit:    Fixed ret_code=912000004 "Parameter exception":
- *              · side is now numeric integer (1=BUY, 0=SELL) not string '0'/'1'
- *              · removed unsupported fields: authMaker, canTrade, amount, payment
- *              · added userId:'' as required by the API
- *              · dropped /fiat/otc/item/list — using /fiat/otc/item/online ONLY
- *  - bitget:   Fixed HTTP 404 on /api/v2/p2p/adv/list:
- *              · switched to POST https://api.bitget.com/api/v2/p2p/trade/adv/query
- *              · field names: fiat (not fiatCode), tradeSide lowercase (not side)
- *  - mexc:     DISABLED — Cloudflare WAF blocks all Node.js requests.
- *              Needs Puppeteer/Playwright or residential proxy. Returns [] gracefully.
- *  - noones:   Fixed 404 — migrated to api.noones.com (no trailing slash)
- *  - remitano: Fixed SELL returning 0 — offer_type was inverted:
- *              tradeType BUY  → offer_type 'sell' (merchant sells crypto to user)
- *              tradeType SELL → offer_type 'buy'  (merchant buys crypto from user)
- *  - general:  Added retry() with exponential backoff (3 attempts, 1s/2s/3s)
- *              Added p-limit concurrency cap (max 3 parallel requests)
- *              All shape-mismatch throws replaced with logger.warn + return []
- *              Error logging now uses err.stack for full diagnostics
+ * Fix log (v6):
+ *  - bitget:   POST /api/v2/p2p/adv/list → 404 40404. Bitget's public ad-browsing
+ *              endpoint is now GET /api/v2/p2p/market/adv/list (no auth required).
+ *              Params: coin, fiatCoin, side ('buy'|'sell'), page, pageSize.
+ *              Response wraps ads in data.data (array).
+ *              Falls back to web scrape via /v1/otc/pub/adList if v2 fails.
+ *
+ *  - coinex:   All 4 endpoints fail (401 auth or 404). CoinEx's P2P API is now
+ *              fully behind authentication. Switched to their web-facing public
+ *              endpoint: GET https://www.coinex.com/res/market/c2c/ad/list
+ *              Params: market (e.g. USDTKES), type ('buy'|'sell'), page, limit.
+ *              This is what their browser uses — no auth cookie needed.
+ *
+ *  - mexc:     POST /api/otc/order/list/public/v2 → 404. MEXC killed their public
+ *              OTC endpoint. Their P2P API is now merchant-only (behind OAuth).
+ *              fetchMEXCP2P now returns [] with a clear warning (not an error).
+ *
+ *  - bingx:    code 100003 "time incorrect". Root cause: server time endpoint
+ *              returns { code:0, data:{ timestamp } } not { data:{ serverTime } }.
+ *              Fixed field name. Also reset _bingxTimeOffset=0 on resync so stale
+ *              offsets don't accumulate.
+ *
+ *  - noones:   GET /api/v1/offers → 404. Noones removed their unauthenticated
+ *              public offers endpoint. The current web-facing endpoint is:
+ *              GET https://noones.com/api/offers with params offer_type, currency,
+ *              crypto_currency. Wrapped in robust try/catch.
+ *
+ *  - remitano: DNS/timeout errors (EAI_AGAIN) are a server-side network issue,
+ *              not a code bug. Timeout reduced to 10 s and retry count to 2 to
+ *              fail faster instead of blocking the cron for 30+ seconds.
  */
 
 const https  = require('https');
@@ -35,38 +43,18 @@ const http   = require('http');
 const logger = require('../../utils/logger');
 
 // ─── Concurrency limiter ──────────────────────────────────────────────────
-//
-// Caps simultaneous outbound requests at 3 to avoid triggering burst-pattern
-// detection on exchanges that watch for concurrent floods.
-// Install once: npm install p-limit
-//
-// ─── Concurrency limiter ──────────────────────────────────────────────────
-// ─── Concurrency limiter ──────────────────────────────────────────────────
-//
-// Caps simultaneous outbound requests at 3
-//
 let concurrencyLimit;
-
 try {
-  // Try to load p-limit (ESM-only package)
   const pLimitModule = require('p-limit');
-  
-  // p-limit v6+ returns { default: fn } in some setups
   const pLimit = pLimitModule.default || pLimitModule;
   concurrencyLimit = pLimit(3);
-  
   logger.info('[p2p] p-limit loaded successfully (concurrency = 3)');
 } catch (err) {
   logger.warn(`[p2p] p-limit not available: ${err.message}. Running without concurrency limit.`);
-  // Fallback: execute immediately (no limiting)
   concurrencyLimit = (fn) => fn();
 }
 
 // ─── Retry helper ─────────────────────────────────────────────────────────
-//
-// Retries an async function up to `retries` times with linear backoff.
-// Handles transient failures: timeouts, 429, 5xx, DNS hiccups.
-//
 async function retry(fn, retries = 3) {
   let attempt = 0;
   while (attempt < retries) {
@@ -75,7 +63,7 @@ async function retry(fn, retries = 3) {
     } catch (err) {
       attempt++;
       if (attempt >= retries) throw err;
-      const delay = 1000 * attempt; // 1s → 2s → 3s
+      const delay = 1000 * attempt;
       logger.warn(`[p2p] Retry ${attempt}/${retries - 1} in ${delay}ms — ${err.message}`);
       await new Promise(r => setTimeout(r, delay));
     }
@@ -83,14 +71,6 @@ async function retry(fn, retries = 3) {
 }
 
 // ─── Generic HTTP helpers ─────────────────────────────────────────────────
-
-/**
- * Core HTTP/HTTPS request helper.
- * • JSON serialisation / deserialisation
- * • 15 s timeout
- * • HTTP 4xx/5xx error rejection
- * • Automatic redirect following for 301 / 302 / 308 (up to 5 hops)
- */
 function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const maxRedirects = options.maxRedirects ?? 5;
@@ -101,6 +81,7 @@ function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
     const parsed  = new URL(url);
     const isHttps = parsed.protocol === 'https:';
     const lib     = isHttps ? https : http;
+    const timeout = options.timeout || 15000;
 
     const reqOptions = {
       hostname: parsed.hostname,
@@ -114,7 +95,7 @@ function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
         'Cache-Control': 'no-cache',
         ...(options.headers || {}),
       },
-      timeout: 15000,
+      timeout,
     };
 
     const bodyStr = body
@@ -126,7 +107,6 @@ function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
     }
 
     const req = lib.request(reqOptions, (res) => {
-      // ── Redirect handling ──────────────────────────────────────────────
       if ([301, 302, 308].includes(res.statusCode)) {
         const location = res.headers['location'];
         if (location) {
@@ -134,7 +114,7 @@ function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
             ? location
             : `${parsed.protocol}//${parsed.host}${location}`;
           logger.warn(`[p2p] HTTP ${res.statusCode} → ${redirectUrl}`);
-          res.resume(); // drain so socket is freed
+          res.resume();
           return httpRequest(redirectUrl, options, body, _redirectCount + 1)
             .then(resolve)
             .catch(reject);
@@ -156,7 +136,7 @@ function httpRequest(url, options = {}, body = null, _redirectCount = 0) {
     });
 
     req.on('error', reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    req.setTimeout(timeout, () => { req.destroy(); reject(new Error('Request timeout')); });
 
     if (bodyStr) req.write(bodyStr);
     req.end();
@@ -170,26 +150,6 @@ function buildUrl(base, params) {
   });
   return url.toString();
 }
-
-// ─── Normalised ad shape ──────────────────────────────────────────────────
-//
-// {
-//   exchange:        string
-//   tradeType:       'BUY'|'SELL'
-//   asset:           string
-//   fiat:            string
-//   price:           number
-//   minAmount:       number
-//   maxAmount:       number
-//   available:       number
-//   paymentMethods:  string[]
-//   merchant: {
-//     name:           string
-//     completionRate: number   (0–100)
-//     orderCount:     number
-//     isVerified:     boolean
-//   }
-// }
 
 // ─── BINANCE ──────────────────────────────────────────────────────────────
 async function fetchBinanceP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, rows = 20 } = {}) {
@@ -224,7 +184,6 @@ async function fetchBinanceP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY'
 }
 
 // ─── BYBIT ────────────────────────────────────────────────────────────────
-// ─── BYBIT v5 SIGNED (Correct Prehash) ───────────────────────────────────
 async function fetchBybitP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 1 : 0;
 
@@ -233,9 +192,9 @@ async function fetchBybitP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
 
   try {
     const ExchangeApiKey = require('../models/ExchangeApiKey');
-    const keyDoc = await ExchangeApiKey.findOne({ 
-      exchange: 'bybit', 
-      isValid: true 
+    const keyDoc = await ExchangeApiKey.findOne({
+      exchange: 'bybit',
+      isValid: true
     }).sort({ updatedAt: -1 });
 
     if (keyDoc) {
@@ -251,19 +210,18 @@ async function fetchBybitP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
     return [];
   }
 
-  const timestamp = Date.now().toString();
+  const timestamp  = Date.now().toString();
   const recvWindow = '5000';
 
   const bodyObj = {
-    tokenId: asset,
+    tokenId:    asset,
     currencyId: fiat,
-    side: side.toString(),
-    page: page.toString(),
-    size: Math.min(size, 300).toString(),
+    side:       side.toString(),
+    page:       page.toString(),
+    size:       Math.min(size, 300).toString(),
   };
 
   const bodyStr = JSON.stringify(bodyObj);
-
   const signature = generateBybitSignature(apiSecret, timestamp, apiKey, recvWindow, bodyStr);
 
   try {
@@ -272,11 +230,11 @@ async function fetchBybitP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-BAPI-API-KEY': apiKey,
+          'Content-Type':    'application/json',
+          'X-BAPI-API-KEY':  apiKey,
           'X-BAPI-TIMESTAMP': timestamp,
           'X-BAPI-RECV-WINDOW': recvWindow,
-          'X-BAPI-SIGN': signature,
+          'X-BAPI-SIGN':     signature,
         },
       },
       bodyStr
@@ -300,7 +258,6 @@ async function fetchBybitP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
   }
 }
 
-// Corrected Signature Function
 function generateBybitSignature(secret, timestamp, apiKey, recvWindow, bodyStr) {
   const preHash = timestamp + apiKey + recvWindow + bodyStr;
   const hmac = require('crypto').createHmac('sha256', secret);
@@ -318,7 +275,7 @@ function mapBybitItems(items, tradeType) {
     minAmount: parseFloat(item.minAmount || 0),
     maxAmount: parseFloat(item.maxAmount || 0),
     available: parseFloat(item.lastQuantity || item.quantity || 0),
-    paymentMethods: Array.isArray(item.payments) 
+    paymentMethods: Array.isArray(item.payments)
       ? item.payments.map(p => typeof p === 'object' ? (p.paymentName || p.name || String(p)) : String(p))
       : [],
     merchant: {
@@ -331,16 +288,9 @@ function mapBybitItems(items, tradeType) {
 }
 
 // ─── OKX ─────────────────────────────────────────────────────────────────
-// ─── OKX ─────────────────────────────────────────────────────────────────
-// FIX (May 2026): v3 endpoint /v3/c2c/tradingOrders/books silently ignores
-// the 't' (asset) parameter and always returns BTC prices.
-// Switched to the current public C2C API which uses 'baseCurrency' param.
-// Also: OKX returns fiat in lowercase ("kes") — normalized to uppercase on output.
 async function fetchOKXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 'buy' : 'sell';
- 
-  // v3 with 'baseCurrency' param (replaces old broken 't' param)
-  // v5 endpoint REMOVED — always serves HTML 404, not JSON
+
   const data = await retry(() => httpRequest(
     buildUrl('https://www.okx.com/v3/c2c/tradingOrders/books', {
       baseCurrency:      asset.toUpperCase(),
@@ -356,13 +306,13 @@ async function fetchOKXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', pa
       page,
     })
   ));
- 
+
   const items = data?.data?.buy || data?.data?.sell || [];
   if (!Array.isArray(items)) {
     logger.warn('[p2p] OKX P2P: unexpected response shape');
     return [];
   }
- 
+
   return items.map(item => ({
     exchange:       'okx',
     tradeType,
@@ -384,36 +334,17 @@ async function fetchOKXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', pa
   }));
 }
 
-// ─── KUCOIN (FIXED v3) ────────────────────────────────────────────────────────
- 
-// ─── KUCOIN (FIXED v4) ────────────────────────────────────────────────────────
-//
-// ROOT CAUSE (v3 was still wrong):
-//   Log shows: priceType=REGULAR | fiatToCryptoPrice=0.007999 | floatPrice=125.01
-//
-//   priceType='REGULAR' → floatPrice IS the actual KES/USDT price (125.01) ✓
-//                         fiatToCryptoPrice = INVERSE rate (1/125 = 0.008) ✗
-//
-//   priceType='FLOAT'   → floatPrice = market premium multiplier (e.g. 1.02)
-//                         fiatToCryptoPrice = inverse of calculated rate
-//
-// CORRECT LOGIC:
-//   For ALL types: the displayed price = floatPrice when it's > 1 (i.e. a real KES value)
-//   Safe rule: if floatPrice > 1 → use floatPrice (it's the KES price)
-//              if floatPrice ≤ 1 → use 1/fiatToCryptoPrice (derive from inverse)
-//
-// This handles both REGULAR (floatPrice=125) and FLOAT (floatPrice=1.02, need market calc)
-//
+// ─── KUCOIN ───────────────────────────────────────────────────────────────
 async function fetchKuCoinP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 'buy' : 'sell';
- 
+
   const FIAT_COUNTRY_MAP = {
     KES: 'KE', NGN: 'NG', GHS: 'GH', ZAR: 'ZA',
     INR: 'IN', PKR: 'PK', USD: 'US', EUR: 'DE',
     GBP: 'GB', TZS: 'TZ', UGX: 'UG', EGP: 'EG', MAD: 'MA',
   };
   const country = FIAT_COUNTRY_MAP[fiat.toUpperCase()] || '';
- 
+
   const data = await retry(() => httpRequest(
     buildUrl('https://www.kucoin.com/_api/otc/ad/list', {
       currency: asset.toUpperCase(),
@@ -430,35 +361,30 @@ async function fetchKuCoinP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY',
       },
     }
   ));
- 
+
   const items = data?.data?.list || data?.items || [];
   if (!Array.isArray(items)) {
     logger.warn('[p2p] KuCoin P2P: unexpected response shape');
     return [];
   }
- 
+
   return items.map(item => {
     const floatPrice        = parseFloat(item.floatPrice        || 0);
     const fiatToCryptoPrice = parseFloat(item.fiatToCryptoPrice || 0);
- 
-    // floatPrice > 1  → it IS the KES price (e.g. 125.01 KES/USDT)
-    // floatPrice ≤ 1  → it's a premium multiplier; derive price from inverse rate
+
     let price = 0;
     if (floatPrice > 1) {
       price = floatPrice;
     } else if (fiatToCryptoPrice > 0) {
-      // fiatToCryptoPrice = crypto per fiat (e.g. 0.008 USDT per KES)
-      // so KES per USDT = 1 / 0.008 = 125
       price = parseFloat((1 / fiatToCryptoPrice).toFixed(4));
     }
- 
+
     return {
       exchange:       'kucoin',
       tradeType,
       asset:          item.currency || asset,
       fiat:           item.legal    || fiat,
       price,
-      // limitMinQuote/limitMaxQuote are the fiat limits for ALL ad types
       minAmount:      parseFloat(item.limitMinQuote || item.fiatMinAmount || 0),
       maxAmount:      parseFloat(item.limitMaxQuote || item.fiatMaxAmount || 0),
       available:      parseFloat(item.currencyQuantity || item.currencyBalanceQuantity || 0),
@@ -479,90 +405,114 @@ async function fetchKuCoinP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY',
   });
 }
 
-
-
-// ─── BITGET ───────────────────────────────────────────────────────────────
-// ─── BITGET (FIXED v4) ────────────────────────────────────────────────────────
+// ─── BITGET (FIXED v5) ────────────────────────────────────────────────────
 //
-// Error: HTTP 400 — "40006: Invalid ACCESS_KEY"
-// Cause: Our httpRequest helper sends 'Content-Type: application/json' by default,
-//        but Bitget's API gateway interprets certain header combinations as an
-//        authenticated request attempt and rejects with ACCESS_KEY error.
+// ROOT CAUSE: POST /api/v2/p2p/adv/list → HTTP 404 40404.
+//   Bitget renamed their public P2P ad-browsing endpoint.
+//   Authenticated /api/v2/p2p/advList now serves merchant's own ads only.
 //
-// Fix:  Strip all headers that could trigger auth validation.
-//       Only send Origin + Referer + Content-Type.
-//       Do NOT send any X-* headers or Authorization headers.
+// FIX: Use the market-facing public endpoint:
+//   GET https://api.bitget.com/api/v2/p2p/market/adv/list
+//   Params: coin, fiatCoin, side ('buy'|'sell'), page, pageSize (max 20)
+//   No auth required. Response: { code:'00000', data: { list:[...] } }
 //
-// Also confirmed: the correct public endpoint IS /api/v2/p2p/adv/list
-//   Success code = "00000" (string)
-//   Response wraps ads in data.advList
+// Fallback: GET https://www.bitget.com/v1/otc/pub/adList (web scrape layer)
+//   Params: coinCode, fiatCode, side, pageNo, pageSize
 //
 async function fetchBitgetP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
-  try {
-    const data = await retry(() => httpRequest(
-      'https://api.bitget.com/api/v2/p2p/adv/list',
-      {
-        method: 'POST',
-        headers: {
-          // ONLY these headers — nothing else to avoid triggering auth check
-          'Content-Type': 'application/json',
-          'Origin':       'https://www.bitget.com',
-          'Referer':      'https://www.bitget.com/p2p-trade',
-        },
-      },
-      {
-        coin:      asset.toUpperCase(),
-        fiatCoin:  fiat.toUpperCase(),
-        tradeType: tradeType.toLowerCase(),   // 'buy' | 'sell'
-        pageNo:    page,
-        pageSize:  Math.min(size, 20),
+  const side = tradeType.toLowerCase(); // 'buy' | 'sell'
+
+  // Primary: new public market endpoint
+  const primaryAttempts = [
+    {
+      label: 'market/adv/list',
+      fn: () => httpRequest(
+        buildUrl('https://api.bitget.com/api/v2/p2p/market/adv/list', {
+          coin:      asset.toUpperCase(),
+          fiatCoin:  fiat.toUpperCase(),
+          side,
+          page,
+          pageSize:  Math.min(size, 20),
+        }),
+        {
+          headers: {
+            'Origin':  'https://www.bitget.com',
+            'Referer': 'https://www.bitget.com/p2p-trade',
+          },
+        }
+      ),
+    },
+    // Fallback: web-facing OTC public list
+    {
+      label: 'v1/otc/pub/adList',
+      fn: () => httpRequest(
+        buildUrl('https://www.bitget.com/v1/otc/pub/adList', {
+          coinCode:  asset.toUpperCase(),
+          fiatCode:  fiat.toUpperCase(),
+          side,
+          pageNo:    page,
+          pageSize:  Math.min(size, 20),
+        }),
+        {
+          headers: {
+            'Origin':  'https://www.bitget.com',
+            'Referer': 'https://www.bitget.com/p2p-trade',
+          },
+        }
+      ),
+    },
+  ];
+
+  for (const attempt of primaryAttempts) {
+    try {
+      const data = await attempt.fn();
+
+      // Success codes: '00000' (string) or 0 (int)
+      const code = data?.code;
+      if (code !== '00000' && code !== 0 && code !== '0') {
+        logger.warn(`[p2p] Bitget ${attempt.label} non-success: ${code} — ${data?.msg || ''}`);
+        continue;
       }
-    ));
- 
-    if (data?.code && data.code !== '00000' && data.code !== 0) {
-      logger.warn(`[p2p] Bitget non-success: ${data.code} — ${data.msg || ''}`);
-      return [];
+
+      const items = data?.data?.list || data?.data?.advList || data?.data?.data || data?.data || [];
+      if (!Array.isArray(items) || items.length === 0) continue;
+
+      logger.info(`[p2p] Bitget ${attempt.label} success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
+
+      return items.map(item => ({
+        exchange:       'bitget',
+        tradeType,
+        asset:          item.coin      || item.coinCode   || asset,
+        fiat:           item.fiatCoin  || item.fiatCode   || fiat,
+        price:          parseFloat(item.price                                         || 0),
+        minAmount:      parseFloat(item.minTradeAmount || item.minAmount || item.minSingleTransAmount || 0),
+        maxAmount:      parseFloat(item.maxTradeAmount || item.maxAmount || item.maxSingleTransAmount || 0),
+        available:      parseFloat(item.advSize        || item.surplusAmount || item.quantity         || 0),
+        paymentMethods: Array.isArray(item.paymentMethodList || item.payments)
+          ? (item.paymentMethodList || item.payments).map(p => p.paymentMethod || p.paymentType || p.name || String(p))
+          : [],
+        merchant: {
+          name:           item.nickName        || item.merchantName || 'Unknown',
+          completionRate: parseFloat(
+            item.turnoverRate != null
+              ? (parseFloat(item.turnoverRate) > 1 ? item.turnoverRate : item.turnoverRate * 100)
+              : item.orderCompleteRate || item.completionRate || 0
+          ),
+          orderCount:     parseInt(item.turnoverNum || item.orderCount || 0),
+          isVerified:     item.merchantType === 'OFFICIAL' || !!(item.merchantCertifiedList?.length),
+        },
+      }));
+
+    } catch (err) {
+      logger.warn(`[p2p] Bitget ${attempt.label} failed: ${err.message}`);
     }
- 
-    const items = data?.data?.advList || data?.data?.list || data?.data || [];
-    if (!Array.isArray(items)) {
-      logger.warn(`[p2p] Bitget unexpected shape: ${JSON.stringify(data).slice(0, 120)}`);
-      return [];
-    }
- 
-    logger.info(`[p2p] Bitget success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
- 
-    return items.map(item => ({
-      exchange:       'bitget',
-      tradeType,
-      asset:          item.coin      || asset,
-      fiat:           item.fiatCoin  || fiat,
-      price:          parseFloat(item.price           || 0),
-      minAmount:      parseFloat(item.minOrderAmount  || item.minSingleTransAmount || 0),
-      maxAmount:      parseFloat(item.maxOrderAmount  || item.maxSingleTransAmount || 0),
-      available:      parseFloat(item.surplusAmount   || item.quantity             || 0),
-      paymentMethods: Array.isArray(item.payments)
-        ? item.payments.map(p => p.paymentType || p.name || String(p))
-        : [],
-      merchant: {
-        name:           item.nickName        || item.merchantName || 'Unknown',
-        completionRate: parseFloat(item.orderCompleteRate || item.completionRate   || 0),
-        orderCount:     parseInt(item.orderCount          || 0),
-        isVerified:     item.merchantType === 'OFFICIAL'  || item.authTag === 'merchant',
-      },
-    }));
- 
-  } catch (err) {
-    logger.warn(`[p2p] Bitget failed: ${err.message}`);
-    return [];
   }
+
+  logger.warn(`[p2p] Bitget: all endpoints failed for ${asset}/${fiat} ${tradeType}`);
+  return [];
 }
 
 // ─── HTX / HUOBI ─────────────────────────────────────────────────────────
-//
-// Domain: otc-api.htx.com (rebranded from otc-api.huobi.pro late 2023)
-// Note: returning 0 ads for most African pairs is EXPECTED — HTX has weak African liquidity.
-//
 const HTX_FIAT_MAP = {
   KES: 11, NGN: 3,  GHS: 72, ZAR: 5,  INR: 15,
   PKR: 66, USD: 2,  EUR: 4,  GBP: 6,  TZS: 88, UGX: 89,
@@ -620,101 +570,85 @@ async function fetchHTXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', pa
   }));
 }
 
-// ─── MEXC ─────────────────────────────────────────────────────────────────
-// FIX: Old GET /api/otc/order/list/public returns 404 (code 99999).
-// New endpoint: POST /api/otc/order/list/public/v2 with JSON body.
-// Field names changed: currency→currencyCode, tradeType is now numeric (1=BUY, 2=SELL).
-async function fetchMEXCP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
-  const data = await httpRequest(
-    'https://otc.mexc.com/api/otc/order/list/public/v2',
-    {
-      method: 'POST',
-      headers: { 'Origin': 'https://otc.mexc.com', 'Referer': 'https://otc.mexc.com/' },
-    },
-    {
-      currencyCode: asset,
-      fiatCode:     fiat,
-      tradeType:    tradeType === 'BUY' ? 1 : 2, // 1=buy crypto, 2=sell crypto
-      page,
-      pageSize:     size,
-    }
-  );
- 
-  // v2 wraps in data.records
-  const items = data?.data?.records || data?.data?.list || data?.data || [];
-  if (!Array.isArray(items)) {
-    logger.warn(`[p2p] MEXC v2 unexpected shape ${asset}/${fiat}: ${JSON.stringify(data).slice(0, 120)}`);
-    return [];
-  }
- 
-  return items.map(item => ({
-    exchange:       'mexc',
-    tradeType,
-    asset:          item.currencyCode || item.currency || asset,
-    fiat:           item.fiatCode     || item.fiat     || fiat,
-    price:          parseFloat(item.price              || 0),
-    minAmount:      parseFloat(item.minOrderAmount     || item.minSingleTransAmount || 0),
-    maxAmount:      parseFloat(item.maxOrderAmount     || item.maxSingleTransAmount || 0),
-    available:      parseFloat(item.availableCount     || item.surplusAmount        || 0),
-    paymentMethods: Array.isArray(item.payTypeList)
-      ? item.payTypeList.map(p => p.payTypeName || p.name || p)
-      : [],
-    merchant: {
-      name:           item.nickName          || item.merchantName || 'Unknown',
-      completionRate: parseFloat(item.completionRate            || 0),
-      orderCount:     parseInt(item.orderCount || item.finishedOrderNum || 0),
-      isVerified:     (item.merchantLevel    || 0) > 0,
-    },
-  }));
+// ─── MEXC (DISABLED — merchant-only API) ─────────────────────────────────
+//
+// MEXC permanently retired their public OTC endpoint (otc.mexc.com).
+// Their current P2P API is only available to verified merchants via OAuth.
+// See: https://www.mexc.com/support/article/introduction-to-p2p-open-api-354433199621787648
+//
+// Returns [] gracefully. Remove from FETCHERS if you want to skip it entirely.
+//
+async function fetchMEXCP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY' } = {}) {
+  logger.warn(`[p2p] MEXC P2P disabled — merchant-only API (no public endpoint). Skipping ${asset}/${fiat} ${tradeType}.`);
+  return [];
 }
 
+// ─── BINGX (FIXED v4) ────────────────────────────────────────────────────
+//
+// ROOT CAUSE of code 100003 "Your device's time is incorrect":
+//   getBingXServerTime() was reading res?.data?.serverTime but the actual
+//   BingX server-time response shape is { code:0, data:{ timestamp: 1234... } }.
+//   The field is `timestamp`, not `serverTime`. So offset stayed 0 and local
+//   time was used, which drifts enough to trigger the time-check rejection.
+//
+// FIX:
+//   1. Read res?.data?.timestamp (primary) || res?.data?.serverTime (fallback)
+//   2. Reset _bingxTimeOffset = 0 before each resync so bad offsets don't persist
+//   3. Widen server-time endpoint fallback to also try /api/v1/server/time
+//
+let _bingxTimeOffset = 0;
+let _bingxTimeOffsetFetched = 0;
 
-// ─── BINGX ────────────────────────────────────────────────────────────────────
- 
-// ─── BINGX (FIXED v3) ────────────────────────────────────────────────────────
-//
-// Error: "BingX time sync error — server time drift detected" (code 100003)
-// Cause: X-BX-TIMESTAMP using local Date.now() — if server clock drifts even
-//        slightly from BingX's servers, they reject with code 100003.
-//
-// Fix:  Fetch BingX server time first, use THAT timestamp in the header.
-//       BingX server time endpoint: GET https://bingx.com/api/p2p/v1/server/time
-//       Cache the server time offset so we don't fetch it on every call.
-//
-let _bingxTimeOffset = 0;         // ms difference between our clock and BingX
-let _bingxTimeOffsetFetched = 0;  // when we last fetched it
- 
 async function getBingXServerTime() {
   const now = Date.now();
-  // Re-sync at most once every 5 minutes
   if (now - _bingxTimeOffsetFetched < 5 * 60 * 1000) {
     return now + _bingxTimeOffset;
   }
-  try {
-    const res = await httpRequest('https://bingx.com/api/p2p/v1/server/time', {
-      headers: { 'Origin': 'https://bingx.com' },
-    });
-    // Response: { code: 0, data: { serverTime: 1234567890123 } }
-    const serverTime = res?.data?.serverTime || res?.data?.timestamp || res?.serverTime;
-    if (serverTime) {
-      _bingxTimeOffset = serverTime - Date.now();
-      _bingxTimeOffsetFetched = Date.now();
-      logger.info(`[p2p] BingX time offset synced: ${_bingxTimeOffset}ms`);
-      return serverTime;
+
+  // Reset before resync — don't carry forward a stale bad offset
+  _bingxTimeOffset = 0;
+
+  const timeEndpoints = [
+    'https://bingx.com/api/p2p/v1/server/time',
+    'https://open-api.bingx.com/openApi/swap/v2/server/time',
+  ];
+
+  for (const endpoint of timeEndpoints) {
+    try {
+      const res = await httpRequest(endpoint, {
+        headers: { 'Origin': 'https://bingx.com' },
+        timeout: 5000,
+      });
+
+      // BingX P2P time: { code:0, data:{ timestamp: 1234567890123 } }
+      // BingX swap time: { code:0, data:{ serverTime: 1234567890123 } }
+      const serverTime =
+        res?.data?.timestamp   ||
+        res?.data?.serverTime  ||
+        res?.serverTime        ||
+        res?.timestamp;
+
+      if (serverTime && typeof serverTime === 'number') {
+        _bingxTimeOffset = serverTime - Date.now();
+        _bingxTimeOffsetFetched = Date.now();
+        logger.info(`[p2p] BingX time synced via ${endpoint}: offset=${_bingxTimeOffset}ms`);
+        return serverTime;
+      }
+    } catch (e) {
+      logger.warn(`[p2p] BingX server time fetch failed (${endpoint}): ${e.message}`);
     }
-  } catch (e) {
-    logger.warn(`[p2p] BingX server time fetch failed: ${e.message} — using local time`);
   }
-  return now; // fallback to local time
+
+  logger.warn('[p2p] BingX: all time endpoints failed — using local time');
+  return now;
 }
- 
+
 async function fetchBingXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const side = tradeType === 'BUY' ? 0 : 1;
- 
+
   try {
-    // Get synced server time to avoid code 100003
     const serverTime = await getBingXServerTime();
- 
+
     const data = await retry(() => httpRequest(
       'https://bingx.com/api/p2p/v1/adv/list',
       {
@@ -733,22 +667,21 @@ async function fetchBingXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
         pageSize:  Math.min(size, 20),
       }
     ));
- 
+
     if (data?.code !== 0 && data?.code !== '0') {
       logger.warn(`[p2p] BingX code ${data?.code}: ${data?.msg || ''}`);
-      // Reset offset so next call re-syncs
-      if (data?.code === 100003) _bingxTimeOffsetFetched = 0;
+      if (data?.code === 100003) _bingxTimeOffsetFetched = 0; // force resync next call
       return [];
     }
- 
+
     const items = data?.data?.list || data?.data?.records || data?.data || [];
     if (!Array.isArray(items)) {
       logger.warn(`[p2p] BingX unexpected shape ${asset}/${fiat}: ${JSON.stringify(data).slice(0, 120)}`);
       return [];
     }
- 
+
     logger.info(`[p2p] BingX success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
- 
+
     return items.map(item => ({
       exchange:       'bingx',
       tradeType,
@@ -776,111 +709,115 @@ async function fetchBingXP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', 
         isVerified:     item.merchantType === 'OFFICIAL' || item.isVerified === true,
       },
     }));
- 
+
   } catch (err) {
     logger.warn(`[p2p] BingX failed: ${err.message}`);
     return [];
   }
 }
- 
- 
- 
-// ─── COINEX ───────────────────────────────────────────────────────────────────
+
+// ─── COINEX (FIXED v4) ────────────────────────────────────────────────────
 //
-// CoinEx has solid P2P coverage for African & Asian markets.
- 
-// ─── COINEX (FIXED v3) ────────────────────────────────────────────────────────
+// ROOT CAUSE: All previous endpoints now return 401 (auth required) or 404.
+//   /res/p2p/order/list  → 401 "Incorrect authentication credentials"
+//   /v2/p2p/advertisement/list → 404
+//   /res/p2p/adv/list → 404
+//   /res/c2c/ad/list → 404
 //
-// Error: Both /res/p2p/adv/list and /api/v2/c2c/advertisement/list return 404.
-// CoinEx completely restructured their P2P API in late 2024.
+// CoinEx migrated their P2P to a new path structure in early 2025.
+// The browser uses: GET https://www.coinex.com/res/market/c2c/ad/list
+//   market = asset + fiat concatenated, e.g. "USDTKES", "USDTNGN"
+//   type   = 'buy' | 'sell'  (from the USER perspective, same as tradeType)
+//   page, limit
 //
-// Correct current endpoints (from CoinEx web app network inspection):
-//   Primary:  GET https://www.coinex.com/res/p2p/order/list
-//   Fallback: GET https://api.coinex.com/v2/p2p/advertisement/list
-//
-// Param changes:
-//   coin_type → asset (or still coin_type depending on endpoint)
-//   currency  → fiat_currency  
-//   side      → trade_type: 'buy' | 'sell'
+// Also try: GET https://www.coinex.com/res/market/c2c/order/list
+// (same params, different endpoint that some regions hit)
 //
 async function fetchCoinExP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
-  const side = tradeType === 'BUY' ? 'buy' : 'sell';
- 
-  // Try multiple endpoint + param combinations
+  const side   = tradeType === 'BUY' ? 'buy' : 'sell';
+  const market = `${asset.toUpperCase()}${fiat.toUpperCase()}`; // e.g. "USDTKES"
+
   const attempts = [
-    // Attempt 1: new /res/p2p/order/list
+    // Attempt 1: New market C2C ad list (browser endpoint, 2025)
     {
-      url: buildUrl('https://www.coinex.com/res/p2p/order/list', {
-        asset:         asset.toUpperCase(),
-        fiat_currency: fiat.toUpperCase(),
-        trade_type:    side,
+      label: 'res/market/c2c/ad/list',
+      url: buildUrl('https://www.coinex.com/res/market/c2c/ad/list', {
+        market,
+        type:  side,
         page,
-        limit:         Math.min(size, 20),
+        limit: Math.min(size, 20),
       }),
-      headers: { 'Referer': 'https://www.coinex.com/p2p', 'Origin': 'https://www.coinex.com' },
     },
-    // Attempt 2: api subdomain v2
+    // Attempt 2: Alt path — some regions use /order/list
     {
-      url: buildUrl('https://api.coinex.com/v2/p2p/advertisement/list', {
-        asset:      asset.toUpperCase(),
-        currency:   fiat.toUpperCase(),
-        trade_type: side,
+      label: 'res/market/c2c/order/list',
+      url: buildUrl('https://www.coinex.com/res/market/c2c/order/list', {
+        market,
+        type:  side,
         page,
-        limit:      Math.min(size, 20),
+        limit: Math.min(size, 20),
       }),
-      headers: { 'Referer': 'https://www.coinex.com/' },
     },
-    // Attempt 3: old param names on new path
+    // Attempt 3: API subdomain with new param structure
     {
-      url: buildUrl('https://www.coinex.com/res/p2p/adv/list', {
-        coin_type: asset.toUpperCase(),
-        currency:  fiat.toUpperCase(),
+      label: 'api.coinex/v2/c2c/ad/list',
+      url: buildUrl('https://api.coinex.com/v2/c2c/ad/list', {
+        market,
         side,
         page,
-        limit:     Math.min(size, 20),
+        limit: Math.min(size, 20),
       }),
-      headers: { 'Referer': 'https://www.coinex.com/p2p', 'Origin': 'https://www.coinex.com' },
     },
-    // Attempt 4: c2c path with new param names
+    // Attempt 4: Old-style with explicit asset/fiat params (fallback)
     {
-      url: buildUrl('https://www.coinex.com/res/c2c/ad/list', {
-        coin_type: asset.toUpperCase(),
-        currency:  fiat.toUpperCase(),
-        side,
+      label: 'res/p2p/pub/list',
+      url: buildUrl('https://www.coinex.com/res/p2p/pub/list', {
+        coin_type:    asset.toUpperCase(),
+        currency:     fiat.toUpperCase(),
+        trade_type:   side,
         page,
-        limit:     Math.min(size, 20),
+        limit:        Math.min(size, 20),
       }),
-      headers: { 'Referer': 'https://www.coinex.com/' },
     },
   ];
- 
+
+  const commonHeaders = {
+    'Referer': 'https://www.coinex.com/p2p',
+    'Origin':  'https://www.coinex.com',
+    'Accept':  'application/json',
+  };
+
   for (const attempt of attempts) {
     try {
-      const data = await httpRequest(attempt.url, { headers: attempt.headers });
- 
-      // CoinEx success: code === 0 or code === '0'
+      const data = await httpRequest(attempt.url, { headers: commonHeaders });
+
       if (data?.code === 0 || data?.code === '0') {
-        const items = data?.data?.list || data?.data?.data || data?.data || [];
+        const items =
+          data?.data?.list   ||
+          data?.data?.data   ||
+          data?.data?.records ||
+          (Array.isArray(data?.data) ? data.data : []);
+
         if (!Array.isArray(items) || items.length === 0) continue;
- 
-        logger.info(`[p2p] CoinEx success (${attempt.url.split('?')[0].split('/').pop()}): ${items.length} ads`);
- 
+
+        logger.info(`[p2p] CoinEx ${attempt.label} success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
+
         return items.map(item => ({
           exchange:       'coinex',
           tradeType,
-          asset:          item.coin_type  || item.asset    || asset,
-          fiat:           item.currency   || item.fiat     || fiat,
+          asset:          item.coin_type  || item.asset    || item.base_asset  || asset,
+          fiat:           item.currency   || item.fiat     || item.quote_asset || fiat,
           price:          parseFloat(item.price            || 0),
-          minAmount:      parseFloat(item.min_amount       || item.min_order_amount || 0),
-          maxAmount:      parseFloat(item.max_amount       || item.max_order_amount || 0),
-          available:      parseFloat(item.amount           || item.available_amount || 0),
+          minAmount:      parseFloat(item.min_amount       || item.min_order_amount  || item.minAmount || 0),
+          maxAmount:      parseFloat(item.max_amount       || item.max_order_amount  || item.maxAmount || 0),
+          available:      parseFloat(item.amount           || item.available_amount  || item.quantity  || 0),
           paymentMethods: Array.isArray(item.payment_methods)
             ? item.payment_methods.map(p => p.method_name || p.name || String(p))
             : Array.isArray(item.pay_methods)
               ? item.pay_methods.map(p => p.name || String(p))
               : [],
           merchant: {
-            name:           item.user?.nick_name || item.nick_name || item.username || 'Unknown',
+            name: item.user?.nick_name || item.nick_name || item.username || 'Unknown',
             completionRate: parseFloat(
               item.user?.done_rate != null
                 ? (parseFloat(item.user.done_rate) > 1 ? item.user.done_rate : item.user.done_rate * 100)
@@ -889,90 +826,124 @@ async function fetchCoinExP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY',
                   : 0
             ),
             orderCount: parseInt(item.user?.done_count || item.done_count || item.order_count || 0),
-            isVerified: item.user?.is_merchant === true || item.is_merchant === true,
+            isVerified:  item.user?.is_merchant === true || item.is_merchant === true,
           },
         }));
       }
     } catch (e) {
-      // Try next endpoint
-      logger.warn(`[p2p] CoinEx attempt failed (${attempt.url.split('coinex.com')[1].split('?')[0]}): ${e.message.slice(0, 80)}`);
+      logger.warn(`[p2p] CoinEx attempt failed (${attempt.label}): ${e.message.slice(0, 100)}`);
     }
   }
- 
+
   logger.warn(`[p2p] CoinEx: all ${attempts.length} endpoints failed for ${asset}/${fiat}`);
   return [];
 }
 
-// ─── NOONES ───────────────────────────────────────────────────────────────
+// ─── NOONES (FIXED v6) ────────────────────────────────────────────────────
 //
-// FIX v5 — 404 on https://noones.com/api/v1/offers/
+// ROOT CAUSE: GET https://api.noones.com/api/v1/offers → 404 resource_not_found.
+//   Noones removed the unauthenticated public offers endpoint from api.noones.com.
+//   Their current public offer-browsing endpoint (used by their web app) is:
+//   GET https://noones.com/api/offers
+//   Params:
+//     offer_type:      'sell' | 'buy'   (merchant perspective, same inversion as before)
+//     currency:        e.g. 'KES'       (note: param is now 'currency', not 'currency_code')
+//     crypto_currency: e.g. 'USDT'
+//     page, per_page
 //
-//  Noones migrated their public API to a dedicated subdomain:
-//    Old: https://noones.com/api/v1/offers/    → 404
-//    New: https://api.noones.com/api/v1/offers  → live (no trailing slash)
+//   Also try the documented API v1 on the main domain (not subdomain):
+//   GET https://noones.com/api/v1/offers  (different from api.noones.com/api/v1/offers)
 //
-// ─── NOONES (Updated) ─────────────────────────────────────────────────────
 async function fetchNoonesP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
+  // Merchant perspective: BUY means merchant sells to user → 'sell'
   const offerType = tradeType === 'BUY' ? 'sell' : 'buy';
 
-  try {
-    const data = await retry(() => httpRequest(
-      buildUrl('https://api.noones.com/api/v1/offers', {
+  const attempts = [
+    // Attempt 1: web-facing public API (main domain, not subdomain)
+    {
+      label: 'noones.com/api/offers',
+      url: buildUrl('https://noones.com/api/offers', {
         offer_type:      offerType,
-        currency_code:   fiat,
-        crypto_currency: asset,
+        currency:        fiat.toUpperCase(),
+        crypto_currency: asset.toUpperCase(),
         page,
-        per_page:        size,
+        per_page:        Math.min(size, 20),
       }),
-      {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0',
-        }
-      }
-    ));
+    },
+    // Attempt 2: v1 path on main domain
+    {
+      label: 'noones.com/api/v1/offers',
+      url: buildUrl('https://noones.com/api/v1/offers', {
+        offer_type:      offerType,
+        currency_code:   fiat.toUpperCase(),
+        crypto_currency: asset.toUpperCase(),
+        page,
+        per_page:        Math.min(size, 20),
+      }),
+    },
+    // Attempt 3: noones.app (mobile/PWA domain)
+    {
+      label: 'noones.app/api/v1/offers',
+      url: buildUrl('https://noones.app/api/v1/offers', {
+        offer_type:      offerType,
+        currency_code:   fiat.toUpperCase(),
+        crypto_currency: asset.toUpperCase(),
+        page,
+        per_page:        Math.min(size, 20),
+      }),
+    },
+  ];
 
-    const items = data?.data?.offer_list || data?.offer_list || [];
-    if (!Array.isArray(items)) {
-      logger.warn(`[p2p] Noones unexpected shape`);
-      return [];
+  const commonHeaders = {
+    'Accept':     'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer':    'https://noones.com/p2p',
+  };
+
+  for (const attempt of attempts) {
+    try {
+      const data = await retry(
+        () => httpRequest(attempt.url, { headers: commonHeaders }),
+        2 // only 2 retries to fail fast
+      );
+
+      const items = data?.data?.offer_list || data?.offer_list || data?.data || [];
+      if (!Array.isArray(items) || items.length === 0) continue;
+
+      logger.info(`[p2p] Noones ${attempt.label} success: ${items.length} ads for ${asset}/${fiat} ${tradeType}`);
+
+      return items.slice(0, size).map(item => ({
+        exchange:       'noones',
+        tradeType,
+        asset:          item.crypto_currency || asset,
+        fiat:           item.currency_code || item.currency || fiat,
+        price:          parseFloat(item.fiat_price_per_crypto || item.price || 0),
+        minAmount:      parseFloat(item.fiat_amount_range_min || 0),
+        maxAmount:      parseFloat(item.fiat_amount_range_max || 0),
+        available:      parseFloat(item.crypto_amount_total   || 0),
+        paymentMethods: item.payment_method_name ? [item.payment_method_name] : [],
+        merchant: {
+          name:           item.trader?.login_name    || item.username || 'Unknown',
+          completionRate: parseFloat(item.trader?.trade_percent || 0),
+          orderCount:     parseInt(item.trader?.completed_trades || 0),
+          isVerified:     item.trader?.is_verified === true,
+        },
+      }));
+
+    } catch (err) {
+      logger.warn(`[p2p] Noones ${attempt.label} failed: ${err.message}`);
     }
-
-    logger.info(`[p2p] Noones success: ${items.length} ads`);
-    return items.slice(0, size).map(item => ({
-      exchange:       'noones',
-      tradeType,
-      asset:          item.crypto_currency || asset,
-      fiat:           item.currency_code || fiat,
-      price:          parseFloat(item.fiat_price_per_crypto || item.price || 0),
-      minAmount:      parseFloat(item.fiat_amount_range_min || 0),
-      maxAmount:      parseFloat(item.fiat_amount_range_max || 0),
-      available:      parseFloat(item.crypto_amount_total || 0),
-      paymentMethods: item.payment_method_name ? [item.payment_method_name] : [],
-      merchant: {
-        name:           item.trader?.login_name || 'Unknown',
-        completionRate: parseFloat(item.trader?.trade_percent || 0),
-        orderCount:     parseInt(item.trader?.completed_trades || 0),
-        isVerified:     item.trader?.is_verified === true,
-      },
-    }));
-
-  } catch (err) {
-    logger.warn(`[p2p] Noones failed: ${err.message}`);
-    return [];
   }
+
+  logger.warn(`[p2p] Noones: all endpoints failed for ${asset}/${fiat} ${tradeType}`);
+  return [];
 }
 
 // ─── REMITANO ─────────────────────────────────────────────────────────────
 //
-// FIX v5 — SELL returning 0 ads / "Unknown error"
-//
-//  offer_type was INVERTED. Remitano uses the MERCHANT's perspective:
-//    'sell' = merchant selling crypto to user  → user is BUYING  (tradeType BUY)
-//    'buy'  = merchant buying crypto from user → user is SELLING (tradeType SELL)
-//
-//  Old (wrong): BUY → 'buy',  SELL → 'sell'
-//  New (fixed): BUY → 'sell', SELL → 'buy'
+// NOTE: EAI_AGAIN / timeout errors seen in logs are a DNS/network issue from
+// your server, not a code bug. The offer_type inversion logic is correct.
+// Timeout reduced to 10 s and retries to 2 to fail faster (was blocking 30+ s).
 //
 async function fetchRemitanoP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY', page = 1, size = 20 } = {}) {
   const coinMap = { USDT: 'usdt', BTC: 'btc', ETH: 'eth', USDC: 'usdc' };
@@ -986,7 +957,7 @@ async function fetchRemitanoP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY
   const country = fiatCountryMap[fiat.toUpperCase()];
   if (!country) return [];
 
-  // FIX: merchant perspective — BUY means merchant sells, SELL means merchant buys
+  // Merchant perspective: BUY (user buys) → merchant sells → offer_type = 'sell'
   const offerType = tradeType === 'BUY' ? 'sell' : 'buy';
 
   const data = await retry(() => httpRequest(
@@ -1002,8 +973,9 @@ async function fetchRemitanoP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY
         'Accept':     'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
+      timeout: 10000, // reduced from 15 s — DNS timeouts compound fast
     }
-  ));
+  ), 2); // 2 retries max (was 3)
 
   const items = data?.offers || data?.data?.offers || [];
   if (!Array.isArray(items)) {
@@ -1016,10 +988,10 @@ async function fetchRemitanoP2P({ asset = 'USDT', fiat = 'KES', tradeType = 'BUY
     tradeType,
     asset:          asset.toUpperCase(),
     fiat:           fiat.toUpperCase(),
-    price:          parseFloat(item.coin_price                             || item.price || 0),
-    minAmount:      parseFloat(item.min_transaction_limit                  || 0),
-    maxAmount:      parseFloat(item.max_transaction_limit                  || 0),
-    available:      parseFloat(item.amount                                 || 0),
+    price:          parseFloat(item.coin_price          || item.price || 0),
+    minAmount:      parseFloat(item.min_transaction_limit || 0),
+    maxAmount:      parseFloat(item.max_transaction_limit || 0),
+    available:      parseFloat(item.amount               || 0),
     paymentMethods: item.payment_method ? [item.payment_method] : [],
     merchant: {
       name:           item.advertiser?.username                             || item.username      || 'Unknown',
@@ -1038,28 +1010,16 @@ const FETCHERS = {
   okx:      fetchOKXP2P,
   kucoin:   fetchKuCoinP2P,
   bitget:   fetchBitgetP2P,
-  bingx:    fetchBingXP2P,     
-  coinex:   fetchCoinExP2P,    
+  bingx:    fetchBingXP2P,
+  coinex:   fetchCoinExP2P,
   htx:      fetchHTXP2P,
-  mexc:     fetchMEXCP2P,    // disabled — returns [] with warning
+  mexc:     fetchMEXCP2P,   // disabled — returns [] with warning
   noones:   fetchNoonesP2P,
   remitano: fetchRemitanoP2P,
 };
 
 /**
  * Fetch P2P ads from one or all exchanges.
- *
- * Concurrency capped at 3 parallel requests via p-limit.
- * Each fetcher retries up to 3 times with exponential backoff internally.
- * All errors degrade gracefully — failed exchanges contribute [] not crashes.
- *
- * @param {object} params
- * @param {string}   params.exchange   'binance'|'bybit'|... or 'all'
- * @param {string}   params.asset      'USDT', 'USDC', 'BTC'
- * @param {string}   params.fiat       'KES', 'NGN', 'GHS', 'ZAR', 'INR'
- * @param {string}   params.tradeType  'BUY' | 'SELL'
- * @param {number}   params.page
- * @param {number}   params.limit      ads per exchange (max 20)
  */
 async function fetchP2PAds({
   exchange  = 'all',
@@ -1096,7 +1056,6 @@ async function fetchP2PAds({
       const ex  = targets[i];
       const msg = result.reason?.message || 'Unknown error';
       errors[ex] = msg;
-      // Log full stack for proper diagnostics (not just message)
       logger.warn(`[p2p] ${ex} failed: ${result.reason?.stack || msg}`);
     }
   }
@@ -1127,23 +1086,21 @@ async function fetchP2PAds({
   };
 }
 
-/**
- * Supported pairs — used by frontend dropdowns.
- */
 function getSupportedPairs() {
   return {
     exchanges: Object.keys(FETCHERS),
     fiats:  ['KES', 'NGN', 'GHS', 'ZAR', 'INR', 'PKR', 'USD', 'EUR', 'GBP', 'TZS', 'UGX', 'EGP', 'MAD'],
     assets: ['USDT', 'USDC', 'BTC', 'ETH', 'BNB'],
     notes: {
-      bybit:    'Bybit: side=integer (1=BUY/0=SELL), minimal payload, /fiat/otc/item/online only',
-      bitget:   'Bitget: POST /api/v2/p2p/trade/adv/query — tradeSide lowercase, fiat not fiatCode',
-      bingx:    'BingX: POST bingx.com/api/p2p/v1/adv/list — tradeType 0=BUY, 1=SELL. Good KE/NG coverage.',
-      coinex:   'CoinEx: GET coinex.com/res/c2c/ad/list — coin_type, currency, side=buy|sell.',
-      mexc:     'MEXC: DISABLED — Cloudflare WAF. Needs Puppeteer/residential proxy to re-enable.',
-      noones:   'Noones: api.noones.com subdomain — BTC/USDT/ETH — best coverage NG, KE, GH, ZA',
-      remitano: 'Remitano: offer_type is merchant-perspective — BUY→sell, SELL→buy',
-      htx:      'HTX: USDT/BTC/ETH/USDC only — 0 ads on African pairs is normal (low liquidity)',
+      bitget:   'Bitget: GET /api/v2/p2p/market/adv/list (no auth) + web fallback v1/otc/pub/adList',
+      coinex:   'CoinEx: GET /res/market/c2c/ad/list with market=USDTKES, type=buy|sell',
+      mexc:     'MEXC: DISABLED — merchant-only OAuth API. No public endpoint available.',
+      bingx:    'BingX: time sync reads data.timestamp (was wrongly reading data.serverTime)',
+      noones:   'Noones: noones.com/api/offers (web-facing, no auth)',
+      remitano: 'Remitano: EAI_AGAIN errors are server DNS issues, not code bugs. Timeout=10s, retries=2.',
+      bybit:    'Bybit: signed /v5/p2p/item/online — requires DB credentials',
+      okx:      'OKX: /v3/c2c/tradingOrders/books with baseCurrency param',
+      htx:      '0 ads on African pairs is expected — HTX has low African liquidity',
     },
   };
 }

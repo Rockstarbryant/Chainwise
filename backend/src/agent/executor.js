@@ -394,17 +394,36 @@ async function planZeroGasRecovery({ stuckToken, stuckChain, stuckAmountUSD, use
 }
 
 // ── 8. scan_giveaways ──────────────────────────────────────────────────────
+// ── 8. scan_giveaways ──────────────────────────────────────────────────────
 async function scanGiveaways({ exchange }) {
   try {
-    return await twitter.scanGiveaways(exchange);
+    // getGiveawaysForAgent reads from MongoDB cache — never calls Twitter live
+    return await twitter.getGiveawaysForAgent(exchange || null);
   } catch (err) {
     return {
       error: err.message,
-      userMessage: err.message?.includes('429')
-        ? '⏳ Twitter API rate limit reached. Try again in 15 minutes.'
-        : `Could not scan giveaways for ${exchange}: ${err.message}`,
+      userMessage: `Could not retrieve giveaways: ${err.message}`,
     };
   }
+}
+
+async function getGiveawayDetails({ giveawayId, exchange }) {
+  let doc = await Giveaway.findOne({ tweetId: giveawayId });
+  if (!doc && exchange) {
+    doc = await Giveaway.findOne({ exchange, isActive: true }).sort({ confidence: -1 });
+  }
+  if (!doc) return { error: 'Giveaway not found' };
+
+  // Analyze requirements more intelligently
+  const analysis = analyzeParticipation(doc);
+
+  return {
+    ...doc.toObject(),
+    participationGuide: analysis.guide,
+    riskLevel: analysis.risk,
+    recommended: analysis.recommended,
+    exampleSteps: analysis.steps
+  };
 }
 
 // ── 9. compare_exchanges ───────────────────────────────────────────────────
