@@ -1,13 +1,20 @@
 /**
  * backend/src/jobs/p2pCron.js
+ *
+ * Warms the Redis cache and MongoDB snapshot store for the 4 active exchanges:
+ * binance, bybit, okx, kucoin.
+ *
+ * v7: Removed bitget, coinex, bingx, remitano, noones, mexc.
+ *     Cron now calls fetchP2PAds with multiPage:true so each warming run
+ *     collects up to ~300 ads per exchange instead of 20.
  */
 
-const cron            = require('node-cron');
-const { fetchP2PAds } = require('../services/p2p');
-const P2PAd           = require('../models/P2PAd');
-const logger          = require('../../utils/logger');
+const cron              = require('node-cron');
+const { fetchP2PAds }   = require('../services/p2p');
+const P2PAd             = require('../models/P2PAd');
+const logger            = require('../../utils/logger');
 const { getCacheRedis } = require('../config/redis');
-const { withLock }    = require('../../utils/redisLock');
+const { withLock }      = require('../../utils/redisLock');
 
 // ─── Pair matrix ──────────────────────────────────────────────────────────
 const WARM_PAIRS = [
@@ -20,45 +27,21 @@ const WARM_PAIRS = [
   { fiat: 'USD', assets: ['USDT', 'USDC', 'BTC'] },
 ];
 
-// ─── Per-exchange limits ──────────────────────────────────────────────────
-const EXCHANGE_LIMITS = {
-  binance:  { assets: null, fiats: null },
-  bybit:    { assets: null, fiats: null },
-  okx:      { assets: null, fiats: null },
-  kucoin:   { assets: null, fiats: null },
-  bitget:   { assets: null, fiats: null },
-  htx: {
-    assets: ['USDT', 'BTC', 'ETH', 'USDC'],
-    fiats:  ['KES', 'NGN', 'GHS', 'ZAR', 'INR', 'PKR', 'USD', 'EUR', 'GBP', 'TZS', 'UGX'],
-  },
-  noones:   { assets: ['USDT', 'BTC', 'ETH'], fiats: null },
-  remitano: {
-    assets: ['USDT', 'BTC', 'ETH'],
-    fiats:  ['KES', 'NGN', 'GHS', 'ZAR', 'TZS', 'UGX', 'USD', 'EUR', 'GBP', 'INR', 'PKR'],
-  },
-};
+const ALL_EXCHANGES = ['binance', 'okx', 'kucoin', 'bybit'];
 
-const ALL_EXCHANGES = [
-  'binance', 'okx', 'kucoin', 'bybit', 'bitget',
-  'htx', 'mexc', 'bingx', 'coinex', 'noones', 'remitano'
-];
+const CACHE_TTL = 900; // 15 minutes
 
-const CACHE_TTL = 900;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────
-function exchangeSupports(exchange, asset, fiat) {
-  const limits = EXCHANGE_LIMITS[exchange];
-  if (!limits) return true;
-  if (limits.assets && !limits.assets.includes(asset)) return false;
-  if (limits.fiats  && !limits.fiats.includes(fiat))   return false;
-  return true;
-}
-
+// ─── Single pair refresh ──────────────────────────────────────────────────
 async function refreshPair(exchange, asset, fiat, tradeType) {
-  if (!exchangeSupports(exchange, asset, fiat)) return 0;
-
   try {
-    const result = await fetchP2PAds({ exchange, asset, fiat, tradeType, limit: 20 });
+    // multiPage:true — fetch all available pages for this exchange
+    const result = await fetchP2PAds({
+      exchange,
+      asset,
+      fiat,
+      tradeType,
+      multiPage: true,
+    });
 
     const redis = getCacheRedis();
     const key   = `p2p:${exchange}:${asset}:${fiat}:${tradeType}:1`;
@@ -94,13 +77,14 @@ async function runP2PRefresh() {
           for (const tradeType of ['BUY', 'SELL']) {
             for (const exchange of ALL_EXCHANGES) {
               total += await refreshPair(exchange, asset, pair.fiat, tradeType);
-              await new Promise(r => setTimeout(r, 300));
+              // Small delay between exchange calls to be polite to APIs
+              await new Promise(r => setTimeout(r, 500));
             }
           }
         }
       }
     } catch (err) {
-      logger.error(`[p2pCron] Unexpected error:`, err);
+      logger.error('[p2pCron] Unexpected error:', err);
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -110,28 +94,29 @@ async function runP2PRefresh() {
 
 // ─── Cron entrypoint ─────────────────────────────────────────────────────
 function startP2PCron() {
+  // Run every 60 minutes
   cron.schedule('*/60 * * * *', () => {
     runP2PRefresh().catch(err =>
       logger.error(`[p2pCron] Unhandled error: ${err.stack || err.message}`)
     );
   });
 
+  // Warm up 5 seconds after process start
   setTimeout(() => {
     runP2PRefresh().catch(err =>
       logger.error(`[p2pCron] Startup run error: ${err.stack || err.message}`)
     );
   }, 5000);
 
-  logger.info('[p2pCron] P2P refresh cron started (every 60 minutes)');
+  logger.info('[p2pCron] P2P refresh cron started (every 60 minutes) — exchanges: binance, bybit, okx, kucoin');
 }
 
-// ── Graceful shutdown ─────────────────────────────────────────────────────
 const stopP2PCron = () => {
   logger.info('[p2pCron] P2P cron stopped');
 };
 
-module.exports = { 
-  startP2PCron, 
+module.exports = {
+  startP2PCron,
   runP2PRefresh,
-  stopP2PCron 
+  stopP2PCron,
 };

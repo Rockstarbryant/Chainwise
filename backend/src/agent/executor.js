@@ -315,81 +315,117 @@ async function checkP2PAvailability({ country }) {
 
 // ── 7. plan_zero_gas_recovery ──────────────────────────────────────────────
 async function planZeroGasRecovery({ stuckToken, stuckChain, stuckAmountUSD, userCountry, targetExchange }) {
-  const country  = (userCountry   || 'KE').toUpperCase();
+  const country = (userCountry || 'KE').toUpperCase();
   const targetEx = (targetExchange || 'bybit').toLowerCase();
- 
-  // Get live P2P availability (now returns real rates too)
-  const p2p     = await checkP2PAvailability({ country });
-  const bestP2P = p2p.supported[0];
- 
-  const gasToken     = 'USDT';
-  const feesDoc      = await ExchangeFee.findOne({ exchange: targetEx });
-  const gasTokenData = feesDoc?.coins.find(c => c.symbol === gasToken);
-  const l2Networks   = (gasTokenData?.networks || [])
-    .filter(n => n.isActive !== false)
-    .filter(n => ['arbitrum', 'base', 'optimism', 'bsc', 'polygon'].includes(normaliseChain(n.chainId)))
-    .sort((a, b) => a.withdrawFee - b.withdrawFee);
- 
-  const gasRoute     = l2Networks[0];
-  const bridgeTarget = gasRoute ? normaliseChain(gasRoute.chainId) : 'arbitrum';
- 
-  let bridgeRoute = null;
-  try {
-    bridgeRoute = await lifi.getBestRoute({
-      fromChain: stuckChain, toChain: bridgeTarget,
-      fromToken: stuckToken, toToken: stuckToken,
-      amountUSD: stuckAmountUSD,
-    });
-    if (bridgeRoute?.error) bridgeRoute = null;
-  } catch (_) {}
- 
-  const gasNeeded = (gasRoute?.minWithdraw || 1) + (gasRoute?.withdrawFee || 0) + 0.5;
-  const steps     = [];
- 
-  // Use live rate in the step description if available
-  const liveRate    = p2p.liveRates?.buyRate;
-  const fiatAmount  = liveRate ? `≈ ${(gasNeeded * liveRate).toFixed(0)} ${p2p.fiat}` : '';
- 
-  if (bestP2P) {
-    steps.push(
-      `**Step 1 — Get gas money via P2P:**\n` +
-      `Buy $${gasNeeded.toFixed(2)} USDT ${fiatAmount ? `(${fiatAmount}) ` : ''}on **${bestP2P.exchange}** P2P ` +
-      `(min $${bestP2P.minUSD}). Pay with ${(p2p.paymentMethods || []).slice(0,2).join(' or ')}.` +
-      (liveRate ? `\nCurrent buy rate: **${liveRate} ${p2p.fiat}/USDT**` : '')
-    );
-    steps.push(
-      `**Step 2 — Withdraw gas to your wallet:**\n` +
-      `Withdraw USDT from ${bestP2P.exchange} via **${gasRoute?.chain || 'BEP20'}** to your wallet.\n` +
-      `Fee: ${gasRoute?.withdrawFee || 0.2} USDT | Arrival: ${arrivalLabel(gasRoute?.chainId || 'bsc')}`
-    );
-  } else {
-    steps.push(`**Step 1 — Get gas money:**\nBuy $${gasNeeded.toFixed(2)} USDT on Noones.com or Paxful.com for your region.`);
-    steps.push(`**Step 2 — Send gas to your wallet:**\nSend a small amount of the native gas token to your ${stuckChain} address.`);
+  const normStuckChain = normaliseChain(stuckChain);
+
+  // Determine native gas token needed for the stuck chain
+  let gasToken = 'USDT'; // fallback - most liquid
+  if (['ethereum', 'arbitrum', 'base', 'optimism'].includes(normStuckChain)) {
+    gasToken = 'ETH';
+  } else if (normStuckChain === 'solana') {
+    gasToken = 'SOL';
+  } else if (normStuckChain === 'sui') {
+    gasToken = 'SUI';
+  } else if (normStuckChain === 'ton') {
+    gasToken = 'TON';
+  } else if (normStuckChain === 'near') {
+    gasToken = 'NEAR';
   }
- 
-  if (normaliseChain(stuckChain) !== bridgeTarget) {
-    if (bridgeRoute) {
-      steps.push(`**Step 3 — Bridge stuck tokens:**\nBridge ${stuckAmountUSD} USD worth of ${stuckToken} from **${stuckChain} → ${bridgeTarget}** via **${bridgeRoute.bridge || 'LI.FI'}**.\nEstimated cost: ~$${bridgeRoute.totalCostUSD || '0.10'}`);
-    } else {
-      steps.push(`**Step 3 — Relay gas to ${stuckChain}:**\nUse **relay.link** to bridge a tiny amount of gas to ${stuckChain} without needing existing funds there.`);
-      steps.push(`**Step 4 — Withdraw directly:**\nSend ${stuckToken} from ${stuckChain} to your ${feesDoc?.displayName || targetEx} deposit address.`);
+
+  // Step 1: Get P2P options — ALWAYS buy USDT first (most liquid, lowest mins)
+  const p2p = await checkP2PAvailability({ country });
+  let bestP2PBuy = null;
+  try {
+    // Prefer low-min USDT P2P
+    const p2pAds = await findP2PBestRate({ country, coin: 'USDT', direction: 'BUY' });
+    bestP2PBuy = p2pAds?.buy?.ads?.[0] || p2p.supported[0];
+  } catch (e) {
+    bestP2PBuy = p2p.supported[0];
+  }
+
+  // Step 2: Find best exchange + network for cheap small gas withdrawal
+  const allExchanges = await ExchangeFee.find({});
+  let bestGasExchange = null;
+  let bestGasRoute = null;
+  let minViableGas = Infinity;
+
+  for (const ex of allExchanges) {
+    const coinData = ex.coins.find(c => c.symbol === gasToken.toUpperCase());
+    if (!coinData) continue;
+
+    const validNetworks = coinData.networks
+      .filter(n => n.isActive !== false)
+      .sort((a, b) => (a.withdrawFee + (a.minWithdraw || 0)) - (b.withdrawFee + (b.minWithdraw || 0)));
+
+    if (validNetworks.length > 0) {
+      const candidate = validNetworks[0];
+      const totalCost = (candidate.minWithdraw || 0) + candidate.withdrawFee;
+      if (totalCost < minViableGas) {
+        minViableGas = totalCost;
+        bestGasExchange = ex;
+        bestGasRoute = candidate;
+      }
     }
   }
- 
+
+  // Fallback
+  if (!bestGasExchange) {
+    bestGasExchange = await ExchangeFee.findOne({ exchange: targetEx });
+    const gasData = bestGasExchange?.coins.find(c => c.symbol === gasToken.toUpperCase());
+    bestGasRoute = gasData?.networks?.filter(n => n.isActive !== false)[0];
+  }
+
+  // Recommend small realistic gas amount: $1.6 - $2.8 USD
+  const gasNeeded = 2.2; // fixed safe small amount in USD equivalent
+
+  const steps = [];
+
+  // Live rate if available
+  const liveRate = p2p.liveRates?.buyRate;
+  const fiatAmount = liveRate ? `≈ ${(gasNeeded * liveRate).toFixed(0)} ${p2p.fiat}` : '';
+
+  if (bestP2PBuy) {
+    steps.push(
+      `**Step 1 — Buy USDT via P2P (lowest limits):**
+Buy ~$${gasNeeded.toFixed(1)} USDT on **${bestP2PBuy.exchange || bestP2PBuy.exchangeKey}** P2P (often min 150-300 KES). Pay with ${(p2p.paymentMethods || []).slice(0,2).join(' or ')}.` +
+      (liveRate ? `\nCurrent best rate: **${liveRate} ${p2p.fiat}/USDT**` : '')
+    );
+
+    steps.push(
+      `**Step 2 — Convert USDT to gas token on spot:**
+On the exchange, swap USDT → **${gasToken}** (spot trade, very low fee).
+Buy at least $${gasNeeded.toFixed(1)} worth of ${gasToken} (enough for gas + buffer).`
+    );
+
+    steps.push(
+      `**Step 3 — Withdraw gas to your wallet:**
+Withdraw **${gasToken}** via **${bestGasRoute?.chain || 'fast network'}** to your ${normStuckChain} wallet.
+Fee: ~${bestGasRoute?.withdrawFee || '0.001'} ${gasToken} | Arrival: ${arrivalLabel(bestGasRoute?.chainId || 'bsc')}`
+    );
+  } else {
+    steps.push(`**Step 1:** Buy small USDT on Noones.com or Paxful for your region.`);
+    steps.push(`**Step 2:** Swap to ${gasToken} on spot and withdraw to wallet.`);
+  }
+
+  // Handle moving the stuck tokens
   steps.push(
-    `**Final Step — Deposit to exchange:**\n` +
-    `Send ${stuckToken} to **${feesDoc?.displayName || targetEx}** via **${gasRoute?.chain || 'Arbitrum'}** deposit address.\n` +
-    `Min deposit: ${gasRoute?.minDeposit || '1'} ${gasToken}`
+    `**Step 4 — Recover your ${stuckToken}:**
+Once you have gas in your wallet, send your ${stuckAmountUSD} USD worth of ${stuckToken} from ${stuckChain} to your target exchange deposit address.`
   );
- 
+
   return {
-    situation:             `${stuckAmountUSD} USD of ${stuckToken} stuck on ${stuckChain} with zero gas`,
-    totalEstimatedCostUSD: (gasNeeded + (bridgeRoute?.totalCostUSD || 0.5)).toFixed(2),
+    situation: `${stuckAmountUSD} USD of ${stuckToken} stuck on ${stuckChain} with zero gas`,
+    gasToken,
+    bestP2P: bestP2PBuy,
+    bestGasExchange: bestGasExchange?.displayName || targetEx,
+    gasNeededUSD: gasNeeded,
+    totalEstimatedCostUSD: (gasNeeded + 0.5).toFixed(2),
     steps,
-    p2pOptions:   p2p.supported,
-    liveRates:    p2p.liveRates,
-    bridgeRoute:  bridgeRoute || null,
-    warning:      '⚠️ Fees change frequently. Verify all amounts on exchanges before executing.',
+    p2pOptions: p2p.supported,
+    liveRates: p2p.liveRates,
+    recommendation: `Best small gas route: Buy USDT on P2P → swap to ${gasToken} → withdraw via low-fee network on ${bestGasExchange?.displayName || 'Bybit/OKX'}.`,
+    warning: '⚠️ Verify current min trade/withdrawal fees on the exchange. Use merchants with ≥95% completion rate. Never send more than you can afford to test.',
   };
 }
 

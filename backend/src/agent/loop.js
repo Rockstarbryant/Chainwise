@@ -6,12 +6,10 @@ const logger = require('../../utils/logger');
 // Ordered by preference. On rate-limit or tool-call failure, next model is tried.
 const MODELS = [
   'openrouter/free',
-  'meta-llama/llama-3.3-70b-instruct:free',
 ];
  
 const TOOL_CAPABLE_MODELS = new Set([
   'openrouter/free',
-  'meta-llama/llama-3.3-70b-instruct:free',
 ]);
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';

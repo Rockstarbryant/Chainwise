@@ -5,6 +5,10 @@
  *
  * Live P2P market page — shows real merchant ads from all exchanges.
  * Fully responsive, minimalist design supporting light and dark modes.
+ *
+ * v7: Active exchanges reduced to binance, bybit, okx, kucoin.
+ *     Payment methods now always render as clean readable strings
+ *     (normalization happens on the backend).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -72,11 +76,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const EXCHANGE_COLORS: Record<string, string> = {
   binance: '#F0B90B',
   bybit:   '#F7A600',
-  okx:     '#888888', // Adjusted for light/dark mode contrast
+  okx:     '#888888',
   kucoin:  '#23AF91',
-  bitget:  '#00D4AA',
-  htx:     '#1E80FF',
-  mexc:    '#00D4AA',
 };
 
 const EXCHANGE_LABELS: Record<string, string> = {
@@ -84,9 +85,6 @@ const EXCHANGE_LABELS: Record<string, string> = {
   bybit:   'Bybit',
   okx:     'OKX',
   kucoin:  'KuCoin',
-  bitget:  'Bitget',
-  htx:     'HTX',
-  mexc:    'MEXC',
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────
@@ -106,15 +104,22 @@ function ExchangeBadge({ exchange }: { exchange: string }) {
 
 function MerchantBadge({ merchant }: { merchant: Merchant }) {
   const rate = merchant.completionRate;
-  const rateColor = rate >= 95 ? 'text-emerald-600 dark:text-emerald-400' : rate >= 85 ? 'text-amber-600 dark:text-amber-500' : 'text-red-600 dark:text-red-400';
-  
+  const rateColor = rate >= 95
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : rate >= 85
+      ? 'text-amber-600 dark:text-amber-500'
+      : 'text-red-600 dark:text-red-400';
+
   return (
     <div className="flex items-center gap-1.5">
       {merchant.isVerified
         ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
         : <Shield className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
       }
-      <span className="font-mono text-xs text-zinc-900 dark:text-zinc-100 truncate max-w-[120px]" title={merchant.name}>
+      <span
+        className="font-mono text-xs text-zinc-900 dark:text-zinc-100 truncate max-w-[120px]"
+        title={merchant.name}
+      >
         {merchant.name}
       </span>
       <span className={`font-mono text-[10px] ${rateColor}`}>
@@ -128,12 +133,17 @@ function MerchantBadge({ merchant }: { merchant: Merchant }) {
 }
 
 function PaymentTags({ methods }: { methods: string[] }) {
-  const shown = methods.slice(0, 3);
-  const extra = methods.length - 3;
+  // Filter out empty/blank strings just in case
+  const clean = methods.filter(m => m && m.trim().length > 0);
+  const shown = clean.slice(0, 3);
+  const extra = clean.length - 3;
   return (
     <div className="flex flex-wrap gap-1">
-      {shown.map(m => (
-        <span key={m} className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">
+      {shown.map((m, i) => (
+        <span
+          key={`${m}-${i}`}
+          className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300"
+        >
           {m}
         </span>
       ))}
@@ -141,6 +151,9 @@ function PaymentTags({ methods }: { methods: string[] }) {
         <span className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">
           +{extra}
         </span>
+      )}
+      {clean.length === 0 && (
+        <span className="font-mono text-[9px] text-zinc-400 dark:text-zinc-600 italic">—</span>
       )}
     </div>
   );
@@ -160,10 +173,10 @@ function AdRow({ ad, fiat }: { ad: P2PAd; fiat: string }) {
         style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 24px' }}
         onClick={() => setExpanded(e => !e)}
       >
-        {/* Mobile Header (Hidden on Desktop) */}
+        {/* Mobile Header */}
         <div className="flex items-center justify-between w-full md:hidden mb-2">
-           <ExchangeBadge exchange={ad.exchange} />
-           <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          <ExchangeBadge exchange={ad.exchange} />
+          <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
 
         {/* Price */}
@@ -194,7 +207,7 @@ function AdRow({ ad, fiat }: { ad: P2PAd; fiat: string }) {
           <MerchantBadge merchant={ad.merchant} />
         </div>
 
-        {/* Exchange + Available (Desktop Layout focus) */}
+        {/* Exchange + Available */}
         <div className="w-full flex justify-between md:block items-center md:flex-col md:items-start gap-1">
           <div className="md:hidden font-mono text-[10px] text-zinc-500 tracking-widest">AVAILABLE</div>
           <div className="hidden md:block"><ExchangeBadge exchange={ad.exchange} /></div>
@@ -234,11 +247,11 @@ function AdRow({ ad, fiat }: { ad: P2PAd; fiat: string }) {
                     </span>
                   </div>
                   <div className="flex justify-between sm:justify-start sm:gap-2">
-                    <span>Orders:</span> 
+                    <span>Orders:</span>
                     <span className="text-emerald-600 dark:text-emerald-400">{ad.merchant.orderCount.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between sm:justify-start sm:gap-2">
-                    <span>Verified:</span> 
+                    <span>Verified:</span>
                     <span className={ad.merchant.isVerified ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500'}>
                       {ad.merchant.isVerified ? 'Yes' : 'No'}
                     </span>
@@ -249,16 +262,18 @@ function AdRow({ ad, fiat }: { ad: P2PAd; fiat: string }) {
                 <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 tracking-widest mb-2">TRADE DETAILS</div>
                 <div className="font-mono text-xs text-zinc-800 dark:text-zinc-200 space-y-1">
                   <div className="flex justify-between sm:justify-start sm:gap-2">
-                    <span>Min:</span> 
+                    <span>Min:</span>
                     <span className="text-zinc-900 dark:text-zinc-100">{ad.minAmount.toLocaleString()} {fiat}</span>
                   </div>
                   <div className="flex justify-between sm:justify-start sm:gap-2">
-                    <span>Max:</span> 
+                    <span>Max:</span>
                     <span className="text-zinc-900 dark:text-zinc-100">{ad.maxAmount.toLocaleString()} {fiat}</span>
                   </div>
                   <div className="flex justify-between sm:justify-start sm:gap-2">
-                    <span>Available:</span> 
-                    <span className="text-zinc-900 dark:text-zinc-100">{ad.available.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ad.asset}</span>
+                    <span>Available:</span>
+                    <span className="text-zinc-900 dark:text-zinc-100">
+                      {ad.available.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ad.asset}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -279,13 +294,13 @@ export default function P2PPage() {
   const [error,     setError]     = useState<string | null>(null);
 
   // Filters
-  const [exchange,   setExchange]   = useState('all');
-  const [asset,      setAsset]      = useState('USDT');
-  const [fiat,       setFiat]       = useState('KES');
-  const [tradeType,  setTradeType]  = useState<'BUY' | 'SELL'>('BUY');
-  const [minComp,    setMinComp]    = useState(0); 
+  const [exchange,     setExchange]     = useState('all');
+  const [asset,        setAsset]        = useState('USDT');
+  const [fiat,         setFiat]         = useState('KES');
+  const [tradeType,    setTradeType]    = useState<'BUY' | 'SELL'>('BUY');
+  const [minComp,      setMinComp]      = useState(0);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm,   setSearchTerm]   = useState('');
 
   // Load supported pairs for dropdowns
   useEffect(() => {
@@ -333,16 +348,6 @@ export default function P2PPage() {
     return true;
   });
 
-  // Keep debug logging strictly per logic preservation
-  useEffect(() => {
-    if (result?.ads?.length) {
-      const okxUsdt = result.ads.filter(a => a.exchange === 'okx' && a.asset === 'USDT');
-      console.log(`Total ads: ${result.ads.length} | OKX USDT ads: ${okxUsdt.length}`);
-      console.log('First OKX ad sample:', okxUsdt[0]);
-      console.log('Filtered count:', filteredAds.length);
-    }
-  }, [result, filteredAds, asset, exchange]);
-
   const { summary } = result || {};
 
   return (
@@ -372,7 +377,7 @@ export default function P2PPage() {
         {/* ── Filter Bar ── */}
         <div className="border border-zinc-200 dark:border-zinc-800 p-4 bg-zinc-50 dark:bg-zinc-900">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            
+
             {/* Trade type toggle */}
             <div className="col-span-1 sm:col-span-2 md:col-span-1">
               <label className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 tracking-widest block mb-2">I WANT TO</label>
@@ -383,9 +388,7 @@ export default function P2PPage() {
                     onClick={() => setTradeType(t)}
                     className={`flex-1 py-2 font-mono text-xs font-bold transition-colors ${
                       tradeType === t
-                        ? t === 'BUY'
-                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-black'
-                          : 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-black'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-black'
                         : 'bg-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                     }`}
                   >
@@ -403,7 +406,7 @@ export default function P2PPage() {
                 onChange={e => setAsset(e.target.value)}
                 className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 px-3 py-2 font-mono text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-zinc-400 dark:focus:border-zinc-500 transition-colors rounded-none appearance-none"
               >
-                {(supported?.assets || ['USDT', 'USDC', 'BTC', 'ETH', 'BNB']).map(a => (
+                {(supported?.assets || ['USDT', 'USDC', 'BTC', 'ETH']).map(a => (
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
@@ -432,7 +435,7 @@ export default function P2PPage() {
                 className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 px-3 py-2 font-mono text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-zinc-400 dark:focus:border-zinc-500 transition-colors rounded-none appearance-none"
               >
                 <option value="all">All Exchanges</option>
-                {(supported?.exchanges || ['binance', 'bybit', 'okx', 'kucoin', 'bitget']).map(ex => (
+                {(supported?.exchanges || ['binance', 'bybit', 'okx', 'kucoin']).map(ex => (
                   <option key={ex} value={ex}>{EXCHANGE_LABELS[ex] || ex}</option>
                 ))}
               </select>
@@ -441,7 +444,7 @@ export default function P2PPage() {
 
           {/* Secondary filters */}
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-            
+
             {/* Search */}
             <div className="relative w-full md:flex-1 md:max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
@@ -455,32 +458,37 @@ export default function P2PPage() {
             </div>
 
             <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
-                {/* Min completion rate */}
-                <div className="flex items-center gap-2">
+
+              {/* Min completion rate */}
+              <div className="flex items-center gap-2">
                 <label className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">MIN COMPLETION</label>
                 <select
-                    value={minComp}
-                    onChange={e => setMinComp(Number(e.target.value))}
-                    className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 px-2 py-1.5 font-mono text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-zinc-400 dark:focus:border-zinc-500 transition-colors appearance-none"
+                  value={minComp}
+                  onChange={e => setMinComp(Number(e.target.value))}
+                  className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 px-2 py-1.5 font-mono text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-zinc-400 dark:focus:border-zinc-500 transition-colors appearance-none"
                 >
-                    <option value={0}>Any</option>
-                    <option value={80}>≥ 80%</option>
-                    <option value={90}>≥ 90%</option>
-                    <option value={95}>≥ 95%</option>
-                    <option value={99}>≥ 99%</option>
+                  <option value={0}>Any</option>
+                  <option value={80}>≥ 80%</option>
+                  <option value={90}>≥ 90%</option>
+                  <option value={95}>≥ 95%</option>
+                  <option value={99}>≥ 99%</option>
                 </select>
-                </div>
+              </div>
 
-                {/* Verified only */}
-                <label className="flex items-center gap-2 cursor-pointer">
+              {/* Verified only */}
+              <label className="flex items-center gap-2 cursor-pointer">
                 <div
-                    onClick={() => setVerifiedOnly(v => !v)}
-                    className={`w-8 h-4 transition-colors relative border ${verifiedOnly ? 'bg-zinc-900 border-zinc-900 dark:bg-zinc-100 dark:border-zinc-100' : 'bg-zinc-200 border-zinc-300 dark:bg-zinc-800 dark:border-zinc-700'}`}
+                  onClick={() => setVerifiedOnly(v => !v)}
+                  className={`w-8 h-4 transition-colors relative border ${
+                    verifiedOnly
+                      ? 'bg-zinc-900 border-zinc-900 dark:bg-zinc-100 dark:border-zinc-100'
+                      : 'bg-zinc-200 border-zinc-300 dark:bg-zinc-800 dark:border-zinc-700'
+                  }`}
                 >
-                    <div className={`absolute top-0.5 w-2.5 h-2.5 bg-white dark:bg-zinc-900 transition-all ${verifiedOnly ? 'left-[18px]' : 'left-1'}`} />
+                  <div className={`absolute top-0.5 w-2.5 h-2.5 bg-white dark:bg-zinc-900 transition-all ${verifiedOnly ? 'left-[18px]' : 'left-1'}`} />
                 </div>
                 <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">VERIFIED ONLY</span>
-                </label>
+              </label>
             </div>
           </div>
         </div>
@@ -527,36 +535,36 @@ export default function P2PPage() {
 
         {/* ── Status banners ── */}
         <div className="space-y-2">
-            {result?.stale && (
+          {result?.stale && (
             <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/50 font-mono text-xs text-amber-800 dark:text-amber-500">
-                <WifiOff className="w-4 h-4 flex-shrink-0" />
-                <span>Showing cached data ({result.staleAge}) — live fetch failed. Refreshing automatically.</span>
+              <WifiOff className="w-4 h-4 flex-shrink-0" />
+              <span>Showing cached data ({result.staleAge}) — live fetch failed. Refreshing automatically.</span>
             </div>
-            )}
-            {result?.cached && !result?.stale && (
+          )}
+          {result?.cached && !result?.stale && (
             <div className="flex items-center gap-2 px-4 py-3 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-                <Wifi className="w-4 h-4 text-emerald-600 dark:text-emerald-500 flex-shrink-0" />
-                <span>Data cached · auto-refreshes every 15 minutes</span>
+              <Wifi className="w-4 h-4 text-emerald-600 dark:text-emerald-500 flex-shrink-0" />
+              <span>Data cached · auto-refreshes every 15 minutes</span>
             </div>
-            )}
-            {result?.errors && Object.keys(result.errors).length > 0 && (
+          )}
+          {result?.errors && Object.keys(result.errors).length > 0 && (
             <div className="flex items-start gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50 font-mono text-xs text-red-800 dark:text-red-400">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <div className="flex flex-col gap-1">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
                 <span className="font-bold">Some exchanges failed:</span>
                 <div>
-                    {Object.entries(result.errors).map(([ex, err]) => (
+                  {Object.entries(result.errors).map(([ex, err]) => (
                     <span key={ex} className="block sm:inline sm:mr-4">
-                        <span className="capitalize">{ex}</span>: {err}
+                      <span className="capitalize">{ex}</span>: {err}
                     </span>
-                    ))}
+                  ))}
                 </div>
-                </div>
+              </div>
             </div>
-            )}
+          )}
         </div>
 
-        {/* ── Desktop Table Header (Hidden on Mobile) ── */}
+        {/* ── Desktop Table Header ── */}
         {!loading && filteredAds.length > 0 && (
           <div
             className="hidden md:grid px-4 py-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400 tracking-widest border-b border-zinc-200 dark:border-zinc-800"
@@ -572,37 +580,37 @@ export default function P2PPage() {
 
         {/* ── Ad rows ── */}
         <div className="space-y-3 md:space-y-2">
-            {loading ? (
+          {loading ? (
             [...Array(6)].map((_, i) => (
-                <div key={i} className="h-24 md:h-16 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 animate-pulse" />
+              <div key={i} className="h-24 md:h-16 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 animate-pulse" />
             ))
-            ) : error ? (
+          ) : error ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-                <div className="font-mono text-sm text-zinc-900 dark:text-zinc-100">{error}</div>
-                <button onClick={fetchAds} className="font-mono text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 border-b border-zinc-500 transition-colors pb-0.5">Try again</button>
+              <AlertCircle className="w-8 h-8 text-red-500" />
+              <div className="font-mono text-sm text-zinc-900 dark:text-zinc-100">{error}</div>
+              <button onClick={fetchAds} className="font-mono text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 border-b border-zinc-500 transition-colors pb-0.5">Try again</button>
             </div>
-            ) : filteredAds.length === 0 ? (
+          ) : filteredAds.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-                <ArrowLeftRight className="w-8 h-8 text-zinc-300 dark:text-zinc-700" />
-                <div className="font-mono text-sm text-zinc-600 dark:text-zinc-400">No ads match your filters</div>
-                <div className="font-mono text-xs text-zinc-500">Try a different fiat, asset, or exchange</div>
+              <ArrowLeftRight className="w-8 h-8 text-zinc-300 dark:text-zinc-700" />
+              <div className="font-mono text-sm text-zinc-600 dark:text-zinc-400">No ads match your filters</div>
+              <div className="font-mono text-xs text-zinc-500">Try a different fiat, asset, or exchange</div>
             </div>
-            ) : (
+          ) : (
             <AnimatePresence mode="popLayout">
-                {filteredAds.map((ad, i) => (
+              {filteredAds.map((ad, i) => (
                 <motion.div
-                    key={`${ad.exchange}-${ad.merchant.name}-${i}`}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ delay: i * 0.02, duration: 0.2 }}
+                  key={`${ad.exchange}-${ad.merchant.name}-${i}`}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ delay: i * 0.02, duration: 0.2 }}
                 >
-                    <AdRow ad={ad} fiat={fiat} />
+                  <AdRow ad={ad} fiat={fiat} />
                 </motion.div>
-                ))}
+              ))}
             </AnimatePresence>
-            )}
+          )}
         </div>
 
         {/* ── Safety reminder ── */}

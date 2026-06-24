@@ -12,6 +12,27 @@ router.get('/', feesLimiter, controller.listExchanges);
 // GET /api/fees/compare?coin=USDT&chain=arbitrum&amount=5
 router.get('/compare', feesLimiter, controller.compareAcrossExchanges);
 
+// GET /api/fees/search?q=US  → ["USDT", "USDC", "UST"]
+router.get('/search', feesLimiter, async (req, res, next) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 1) return success(res, []);
+
+    const ExchangeFee = require('../models/ExchangeFee');
+    const docs = await ExchangeFee.find({}, 'coins.symbol').lean();
+    const allSymbols = [...new Set(
+      docs.flatMap(d => d.coins.map(c => c.symbol))
+    )];
+
+    const matches = allSymbols
+      .filter(s => s.startsWith(q.toUpperCase()))
+      .sort()
+      .slice(0, 10);
+
+    return success(res, matches);
+  } catch (err) { next(err); }
+});
+
 router.get('/:exchange/coins', feesLimiter, exchangeParams, async (req, res, next) => {
   try {
     const { page = 1 } = req.query;
@@ -20,6 +41,7 @@ router.get('/:exchange/coins', feesLimiter, exchangeParams, async (req, res, nex
     return success(res, result);
   } catch (err) { next(err); }
 });
+
 
 // GET /api/fees/:exchange
 router.get('/:exchange', feesLimiter, exchangeParams, controller.getExchange);

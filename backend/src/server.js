@@ -116,7 +116,7 @@ const start = async () => {
   });
 
   // Validate required env vars at startup — crash loudly if missing
-const REQUIRED_ENV = ['GROQ_API_KEY', 'MONGODB_URI', 'ADMIN_EMAILS', 'API_KEY_ENCRYPTION_SECRET', 'TELEGRAM_BOT_TOKEN', 'TWITTER_BEARER_TOKEN', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'TELEGRAM_RATE_LIMIT'];
+const REQUIRED_ENV = ['GROQ_API_KEY', 'MONGODB_URI', 'ADMIN_EMAILS', 'API_KEY_ENCRYPTION_SECRET', 'TELEGRAM_BOT_TOKEN', 'TWITTER_BEARER_TOKEN', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_SIGNING_SECRET', 'TELEGRAM_RATE_LIMIT'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length > 0) {
   logger.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
@@ -131,6 +131,18 @@ logger.info('✅ Environment variables validated');
    // ── Telegram Giveaway Scanner (24-hour cycle, free — no API key) ──
    const { startTelegramGiveawayScanCron } = require('./jobs/telegramGiveawayScan');
   startTelegramGiveawayScanCron();
+
+  // ── Slack Bot (optional — only starts if tokens are configured) ──────
+  if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
+    try {
+      require('./slack/chainwise-slack');
+      require('./mcp/chainwise-mcp-server');
+      logger.info('✅ Slack bot + MCP server started');
+    } catch (err) {
+      logger.error('❌ Failed to initialize Slack bot:', err.message);
+      logger.error('   Stack:', err.stack);
+    }
+  }
 
   // Start Telegram Bot if token is provided
 // Start Telegram Bot if token is provided

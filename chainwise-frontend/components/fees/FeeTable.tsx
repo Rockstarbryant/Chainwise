@@ -79,7 +79,9 @@ export default function FeeTable() {
 
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   const inputRef    = useRef<HTMLInputElement>(null);
 
   const toggleCard = (slug: string) => {
@@ -126,6 +128,20 @@ export default function FeeTable() {
       .finally(() => setLoading(false));
   }, [selectedCoin]);
 
+  const fetchSuggestions = async (q: string) => {
+  if (q.length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
+  try {
+    // Fix: use your backend API URL, not just /api/fees/search
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const res = await fetch(`${base}/api/fees/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    setSuggestions(data.data || []);
+    setShowSuggestions((data.data || []).length > 0);
+  } catch (_) {
+    setSuggestions([]);
+  }
+};
+
   const displayComparison = useMemo<ComparisonRow[]>(() => {
     if (!fullData) return [];
     if (!selectedChain) return fullData.comparison;
@@ -161,24 +177,37 @@ export default function FeeTable() {
   const hiddenCount  = allChains.length - CHAIN_PILLS_VISIBLE;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.toUpperCase();
-    setInputValue(val);
+  const val = e.target.value.toUpperCase();
+  setInputValue(val);
+  fetchSuggestions(val); // autocomplete still works as you type
+};
 
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!val.trim()) return;
+// Fires on Enter key
+const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter' && inputValue.trim()) {
+    setShowSuggestions(false);
+    setSelectedCoin(inputValue.trim());
+  }
+};
 
-    debounceRef.current = setTimeout(() => {
-      setSelectedCoin(val.trim());
-    }, 500);
-  };
+// Fires on Search button click
+const handleSearch = () => {
+  if (inputValue.trim()) {
+    setShowSuggestions(false);
+    setSelectedCoin(inputValue.trim());
+  }
+};
 
   const handleClear = () => {
-    setInputValue('');
-    setFullData(null);
-    setNoData(false);
-    setSelectedChain(null);
-    inputRef.current?.focus();
-  };
+  setInputValue('');
+  setFullData(null);
+  setNoData(false);
+  setSelectedCoin('');    // ← clear selected coin too
+  setSelectedChain(null);
+  setSuggestions([]);
+  setShowSuggestions(false);
+  inputRef.current?.focus();
+};
 
   const handlePopularClick = (coin: string) => {
     setInputValue(coin);
@@ -200,37 +229,74 @@ export default function FeeTable() {
       <div className="space-y-4 bg-white dark:bg-slate-950 p-4 border-2 border-pink-500 rounded-lg">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <span className="font-mono text-xs bg-pink-600 text-white px-3 py-1 rounded tracking-widest shrink-0 font-bold">COMPARE</span>
-          <div className="relative flex-1 max-w-md" suppressHydrationWarning>
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pink-600 pointer-events-none" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={handleInputChange}
-              placeholder="Search any coin… e.g. XRP"
-              className="
-                w-full pl-10 pr-10 py-2
-                font-mono text-sm bg-pink-100 dark:bg-pink-950
-                border-2 border-pink-400 rounded-md
-                text-pink-900 dark:text-pink-100
-                placeholder:text-pink-500
-                focus:outline-none focus:border-pink-600
-              "
-              spellCheck={false}
-              autoComplete="off"
-              data-1p-ignore="true"
-              data-lpignore="true"
-            />
-            {inputValue && (
-              <button
-                onClick={handleClear}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-pink-600 font-bold"
-                aria-label="Clear search"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+          <div className="relative flex-1 max-w-md">
+  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 
+                     text-pink-600 pointer-events-none" />
+  <input
+    ref={inputRef}
+    type="text"
+    value={inputValue}
+    onChange={handleInputChange}
+    onKeyDown={handleKeyDown}
+    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+    placeholder="Search any coin… e.g. XRP, CITY, SOL"
+    className="
+      w-full pl-10 pr-10 py-2
+      font-mono text-sm bg-pink-100 dark:bg-pink-950
+      border-2 border-pink-400 rounded-l-md
+      text-pink-900 dark:text-pink-100
+      placeholder:text-pink-500
+      focus:outline-none focus:border-pink-600
+    "
+    spellCheck={false}
+    autoComplete="off"
+  />
+  {inputValue && (
+    <button
+      onClick={handleClear}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-pink-600"
+    >
+      <X className="w-4 h-4" />
+    </button>
+  )}
+
+  {/* Autocomplete dropdown */}
+  {showSuggestions && suggestions.length > 0 && (
+    <div className="absolute top-full left-0 right-0 z-50 mt-1 
+                    bg-slate-900 border-2 border-pink-400 rounded-md 
+                    shadow-lg max-h-48 overflow-y-auto">
+      {suggestions.map(coin => (
+        <button
+          key={coin}
+          onMouseDown={() => {
+            setInputValue(coin);
+            setSelectedCoin(coin); // selecting suggestion = immediate search
+            setShowSuggestions(false);
+          }}
+          className="w-full text-left px-4 py-2 font-mono text-sm 
+                     hover:bg-pink-950 text-pink-100 font-bold"
+        >
+          {coin}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+
+{/* Search button */}
+<button
+  onClick={handleSearch}
+  disabled={!inputValue.trim()}
+  className="
+    px-4 py-2 font-mono text-sm font-black
+    bg-pink-600 hover:bg-pink-700 text-white
+    border-2 border-pink-700 rounded-r-md
+    disabled:opacity-40 disabled:cursor-not-allowed
+    transition-colors
+  "
+>
+  SEARCH
+</button>
         </div>
 
         {/* Popular quick-picks */}

@@ -102,7 +102,7 @@ const tools = [
     type: 'function',
     function: {
       name: 'plan_zero_gas_recovery',
-      description: 'Build a complete step-by-step recovery plan when user has tokens stuck on a chain with zero gas. Coordinates P2P purchase + bridge + deposit.',
+      description: 'Build a complete step-by-step recovery plan when user has tokens stuck on a chain with zero gas. ALWAYS: 1) Buy USDT via P2P first (lowest min trades), 2) Swap to native gas token (ETH/SOL/etc.) on spot exchange, 3) Withdraw small gas amount (~$2–$2.80 total). Prioritize low P2P minimums and cheap small withdrawals.',
       parameters: {
         type: 'object',
         properties: {
@@ -647,12 +647,23 @@ Example flow for SOMI:
 - Call \`get_all_exchange_coins\`({exchange: "all", search: "SOMI"})
 - Then recommend best exchange based on fees/minimums.
 
-**1. ALWAYS understand intent before acting.**
+  **1. ALWAYS understand intent before acting.**
 When a user says "move X from Exchange A to Exchange B", that is a FULL ROUTING PROBLEM, not just a withdrawal question. You must:
   - Check if the coin is listed on the DESTINATION exchange (not just the source)
   - Find networks supported by BOTH exchanges (overlap)
   - Verify minimum deposit amounts on the destination
   - Calculate total end-to-end cost
+  - If the coin is NOT listed on the destination, find a conversion route via USDT/USDC/ETH/BNB
+  - **ZERO GAS RECOVERY (CRITICAL FLOW):** If tokens are stuck on a chain with zero gas:
+    - ALWAYS start by recommending buy USDT via P2P (most liquid, lowest minimums).
+    - Use plan_zero_gas_recovery tool.
+    - Recommend buying ~$2.00–$2.80 USD worth of USDT via P2P.
+    - Then on the exchange: swap USDT → native gas token (ETH for Ethereum/Arbitrum/Base, SOL for Solana, SUI for Sui, etc.) on spot.
+    - Withdraw tiny amount of gas token using the cheapest low-min network.
+    - Strictly keep gas cost under $3.
+    - Prioritize exchanges with lowest P2P min trades and best small-withdrawal fees.
+  - If the user is asking about a giveaway, check if it requires a deposit or trading first, and give step-by-step instructions.
+  - For p2p \'get_p2p_ads\` limits are always in fiat or local currency and not in the currency being sold or bought like (USDT, USDC, ETH, BTC)
 
 **1a. IMPLICIT SOURCE EXCHANGE — CRITICAL.**
 The source exchange is NOT always restated in the current message. If the conversation has already established WHERE the user's funds currently sit (e.g. they bought USDT via P2P on Bybit, or earlier said "I have funds on X"), then ANY later question like:
