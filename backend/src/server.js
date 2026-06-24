@@ -134,15 +134,16 @@ logger.info('✅ Environment variables validated');
 
   // ── Slack Bot (optional — only starts if tokens are configured) ──────
   if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
-    try {
-      require('./slack/chainwise-slack');
-      require('./mcp/chainwise-mcp-server');
-      logger.info('✅ Slack bot + MCP server started');
-    } catch (err) {
-      logger.error('❌ Failed to initialize Slack bot:', err.message);
-      logger.error('   Stack:', err.stack);
-    }
+  try {
+    require('./slack/chainwise-slack');
+    require('./mcp/chainwise-mcp-server');
+    logger.info('✅ Slack bot + MCP server started');
+  } catch (err) {
+    logger.error('❌ Failed to initialize Slack bot:', err?.message || String(err));
+    logger.error('   Stack:', err?.stack || 'no stack');
+    logger.error('   Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
   }
+}
 
   // Start Telegram Bot if token is provided
 // Start Telegram Bot if token is provided

@@ -59,10 +59,9 @@ function formatForSlack(text) {
 }
 
 // ── Build Slack blocks from agent response ────────────────────────────────
-function buildBlocks(text, toolsUsed = []) {
+function buildBlocks(text, toolsUsed = [], originalQuery = '') {
   const formatted = formatForSlack(text);
 
-  // Split into chunks of max 2900 chars (Slack block limit is 3000)
   const chunks = [];
   let remaining = formatted;
   while (remaining.length > 2900) {
@@ -77,26 +76,36 @@ function buildBlocks(text, toolsUsed = []) {
     text: { type: 'mrkdwn', text: chunk },
   }));
 
-  // Divider before footer
   blocks.push({ type: 'divider' });
 
-  // Footer: tools used + tip
   const toolNames = toolsUsed?.length
     ? toolsUsed.map(t => `\`${t.tool}\``).join('  ')
     : null;
 
   blocks.push({
     type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text: [
-          toolNames ? `🔧 ${toolNames}` : null,
-          '_Verify all fees on the exchange before transacting._',
-        ].filter(Boolean).join('   •   '),
-      },
-    ],
+    elements: [{
+      type: 'mrkdwn',
+      text: [
+        toolNames ? `🔧 ${toolNames}` : null,
+        '_Verify all fees on the exchange before transacting._',
+      ].filter(Boolean).join('   •   '),
+    }],
   });
+
+  // ── Retry button ──────────────────────────────────────────────────────
+  if (originalQuery) {
+    blocks.push({
+      type: 'actions',
+      elements: [{
+        type: 'button',
+        text: { type: 'plain_text', text: '🔄 Retry', emoji: true },
+        style: 'primary',
+        action_id: 'retry_query',
+        value: originalQuery.slice(0, 2000), // Slack value limit
+      }],
+    });
+  }
 
   return blocks;
 }
@@ -107,6 +116,33 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode:    true,
   appToken:      process.env.SLACK_APP_TOKEN,
+});
+
+// ── Handle retry button clicks ────────────────────────────────────────────
+app.action('retry_query', async ({ action, ack, say, body }) => {
+  await ack(); // must acknowledge within 3 seconds
+
+  const originalQuery = action.value;
+  const threadId = body.message?.thread_ts || body.container?.message_ts;
+  const messageTs = body.container?.message_ts;
+
+  if (!originalQuery || !threadId) return;
+
+  // Clear this thread's history so retry is fresh
+  threadHistory.delete(threadId);
+
+  await say({
+    text: '🔄 Retrying...',
+    thread_ts: messageTs,
+  });
+
+  await handleMessage({
+    userText:  originalQuery,
+    threadId,
+    channelId: body.channel?.id,
+    messageTs,
+    say,
+  });
 });
 
 // ── Shared handler for both mentions and DMs ──────────────────────────────
@@ -145,7 +181,7 @@ async function handleMessage({ userText, threadId, channelId, messageTs, say }) 
       appendHistory(threadId, 'assistant', result.message);
     }
 
-    const blocks = buildBlocks(result?.message, result?.toolsUsed);
+    const blocks = buildBlocks(result?.message, result?.toolsUsed, cleanText);
 
     await say({
       text: result?.message?.slice(0, 200) || 'Here are the results:',
@@ -161,6 +197,97 @@ async function handleMessage({ userText, threadId, channelId, messageTs, say }) 
     });
   }
 }
+
+app.command('/chainwise', async ({ command, ack, say }) => {
+  await ack(); // must acknowledge within 3 seconds
+
+  const threadId = `slash-${command.channel_id}-${command.user_id}`;
+  
+  await handleMessage({
+    userText:  command.text,
+    threadId,
+    channelId: command.channel_id,
+    messageTs: command.channel_id,
+    say,
+  });
+});
+
+app.event('app_home_opened', async ({ event, client }) => {
+  await client.views.publish({
+    user_id: event.user,
+    view: {
+      type: 'home',
+      blocks: [
+        {
+          type: 'header',
+          text: { type: 'plain_text', text: '⚡ ChainWise — Crypto Fee Intelligence' }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*What can I help you with?*\nI compare withdrawal fees, find P2P rates, plan cross-exchange transfers, and recover stuck tokens — all in real time.'
+          }
+        },
+        { type: 'divider' },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Try these examples:*\n• `@ChainWise USDT fees on Binance`\n• `@ChainWise P2P rates in Kenya`\n• `@ChainWise move 500 USDT from Binance to Bybit`\n• `@ChainWise I have ETH stuck on Arbitrum, I\'m in Kenya`\n• `/chainwise compare USDT across all exchanges`'
+          }
+        },
+        { type: 'divider' },
+        {
+          type: 'context',
+          elements: [{
+            type: 'mrkdwn',
+            text: '🌍 Built for Every crypto users • Live P2P rates • 9 exchanges • Real-time fee data'
+          }]
+        }
+      ]
+    }
+  });
+});
+
+
+app.command('/chainwise-search', async ({ command, ack, client, say }) => {
+  await ack();
+  
+  try {
+    // RTS API — searches workspace messages
+    const results = await client.search.messages({
+      query: command.text,
+      count: 3,
+    });
+    
+    const hits = results?.messages?.matches || [];
+    
+    if (hits.length === 0) {
+      await say({ text: `No past discussions found for: _${command.text}_` });
+      return;
+    }
+
+    const blocks = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*Past discussions about "${command.text}":*` }
+      },
+      ...hits.map(hit => ({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `<${hit.permalink}|View message> — ${hit.text?.slice(0, 150)}...`
+        }
+      }))
+    ];
+
+    await say({ blocks, text: 'Search results' });
+  } catch (err) {
+    await say({ text: `Search unavailable: ${err.message}` });
+  }
+});
+
 
 // ── Event: @ChainWise mention in any channel ──────────────────────────────
 app.event('app_mention', async ({ event, say }) => {

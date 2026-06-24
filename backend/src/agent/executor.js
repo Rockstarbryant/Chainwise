@@ -444,22 +444,40 @@ async function scanGiveaways({ exchange }) {
 }
 
 async function getGiveawayDetails({ giveawayId, exchange }) {
-  let doc = await Giveaway.findOne({ tweetId: giveawayId });
-  if (!doc && exchange) {
-    doc = await Giveaway.findOne({ exchange, isActive: true }).sort({ confidence: -1 });
+  try {
+    const Giveaway = require('../models/Giveaway');
+    
+    let doc = await Giveaway.findOne({ tweetId: giveawayId });
+    if (!doc && exchange) {
+      doc = await Giveaway.findOne({ exchange, isActive: true }).sort({ confidence: -1 });
+    }
+    if (!doc) return { error: 'Giveaway not found' };
+
+    // Simple participation guide — no external function needed
+    const requirements = doc.requirements || [];
+    const steps = [];
+
+    if (requirements.includes('follow')) steps.push(`1. Follow @${doc.exchange} on X/Twitter`);
+    if (requirements.includes('repost') || requirements.includes('retweet')) steps.push(`2. Repost/Retweet the post`);
+    if (requirements.includes('reply') || requirements.includes('comment')) steps.push(`3. Reply to the post with the required text`);
+    if (requirements.includes('tag')) steps.push(`4. Tag 2-3 friends in the comments`);
+    if (steps.length === 0) steps.push('Check the original post for participation requirements');
+
+    return {
+      tweetId:     doc.tweetId,
+      exchange:    doc.exchange,
+      prizePool:   doc.prizePool,
+      currency:    doc.currency,
+      confidence:  doc.confidence,
+      postUrl:     doc.postUrl || `https://x.com/i/web/status/${doc.tweetId}`,
+      requirements,
+      participationGuide: steps,
+      riskLevel:   doc.confidence >= 80 ? 'low' : doc.confidence >= 60 ? 'medium' : 'high',
+      warning:     doc.confidence < 60 ? '⚠️ Low confidence — verify this is an official post before participating.' : null,
+    };
+  } catch (err) {
+    return { error: err.message };
   }
-  if (!doc) return { error: 'Giveaway not found' };
-
-  // Analyze requirements more intelligently
-  const analysis = analyzeParticipation(doc);
-
-  return {
-    ...doc.toObject(),
-    participationGuide: analysis.guide,
-    riskLevel: analysis.risk,
-    recommended: analysis.recommended,
-    exampleSteps: analysis.steps
-  };
 }
 
 // ── 9. compare_exchanges ───────────────────────────────────────────────────
