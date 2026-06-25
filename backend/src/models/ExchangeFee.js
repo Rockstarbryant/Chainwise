@@ -20,26 +20,27 @@ const CoinSchema = new mongoose.Schema({
 }, { _id: false });
 
 const ExchangeFeeSchema = new mongoose.Schema({
-  exchange: {
-    type: String,
-    required: true,
-    lowercase: true,
-    unique: true,
-    // binance | bybit | coinex | bitget | gateio | kucoin | okx
-  },
-  displayName: { type: String, required: true },
-  website: { type: String },
-  twitterHandle: { type: String },
-  p2p: { type: Boolean, default: false },
-  p2pMinUSD: { type: Number, default: null },
-  p2pCountries: [{ type: String }], // ISO 3166-1 alpha-2 codes
-  coins: [CoinSchema],
-  lastUpdated: { type: Date, default: Date.now },
-  dataSource: {
-    type: String,
-    enum: ['manual', 'api', 'scraper'],
-    default: 'manual',
-  },
+  exchange:        { type: String, required: true, lowercase: true, unique: true },
+  displayName:     { type: String, required: true },
+  website:         { type: String },
+  twitterHandle:   { type: String },
+  description:     { type: String },
+  country:         { type: String },
+  yearEstablished: { type: Number },
+  image:           { type: String },
+  trustScore:      { type: Number },
+  trustScoreRank:  { type: Number },
+  centralized:     { type: Boolean },
+  cgTotalCoins:    { type: Number },
+  cgTotalPairs:    { type: Number },
+  cgVolume24hBTC:  { type: Number },
+  cgLastEnriched:  { type: Date },
+  p2p:             { type: Boolean, default: false },
+ // p2pMinUSD:       { type: Number, default: null },
+  p2pCountries:    [{ type: String }],
+  coins:           [CoinSchema],
+  lastUpdated:     { type: Date, default: Date.now },
+  dataSource:      { type: String, enum: ['manual', 'api', 'scraper'], default: 'manual' },
 }, { timestamps: true });
 
 // Index for fast queries

@@ -14,6 +14,8 @@ const EXCHANGES = [
   { key: 'bybit',   label: 'Bybit',    needsPassphrase: false, docs: 'https://www.bybit.com/app/user/api-management' },
   { key: 'okx',     label: 'OKX',      needsPassphrase: true,  docs: 'https://www.okx.com/account/my-api' },
   { key: 'kucoin',  label: 'KuCoin',   needsPassphrase: true,  docs: 'https://www.kucoin.com/account/api' },
+  { key: 'kraken', label: 'Kraken', needsPassphrase: false, docs: 'https://www.kraken.com/u/security/api' },
+  { key: 'phemex', label: 'Phemex', needsPassphrase: false, docs: 'https://phemex.com/account/api-management' },
   { key: 'bitget',  label: 'Bitget',   needsPassphrase: true,  docs: 'https://www.bitget.com/account/newapi' },
   { key: 'gateio',  label: 'Gate.io',  needsPassphrase: false, docs: 'https://www.gate.io/myaccount/apiv4keys' },
   { key: 'mexc',    label: 'MEXC',     needsPassphrase: false, docs: 'https://www.mexc.com/user/openapi' },

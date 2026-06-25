@@ -24,8 +24,8 @@ interface Giveaway {
   exchangeHandle:      string;
   tweetUrl:            string;
   tweetText:           string;
-  telegramHtml?:       string;           // NEW
-  embeddedLinks?:      Array<{ text: string; url: string }>; // NEW
+  telegramHtml?:       string;
+  embeddedLinks?:      Array<{ text: string; url: string }>;
   authorName:          string;
   authorHandle:        string;
   prizePool:           string | null;
@@ -79,15 +79,15 @@ const API_URL      = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 const ADMIN_EMAIL  = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'yobra194@gmail.com';
 
 const SORT_OPTIONS = [
-  { value: 'confidence', label: 'Best Match'    },
-  { value: 'recent',     label: 'Most Recent'   },
-  { value: 'prize',      label: 'Highest Prize' },
+  { value: 'confidence', label: 'BEST MATCH'    },
+  { value: 'recent',     label: 'MOST RECENT'   },
+  { value: 'prize',      label: 'HIGHEST PRIZE' },
 ];
 
 const SOURCE_OPTIONS = [
-  { value: 'all',      label: 'All Sources' },
-  { value: 'telegram', label: 'Telegram'    },
-  { value: 'twitter',  label: 'X / Twitter' },
+  { value: 'all',      label: 'ALL SOURCES' },
+  { value: 'telegram', label: 'TELEGRAM'    },
+  { value: 'twitter',  label: 'X / TWITTER' },
 ];
 
 const REQ_ICONS: Record<string, string> = {
@@ -99,57 +99,51 @@ const REQ_ICONS: Record<string, string> = {
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1)  return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1)  return 'JUST NOW';
+  if (m < 60) return `${m}M AGO`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return `${h}H AGO`;
+  return `${Math.floor(h / 24)}D AGO`;
 }
 
-function confidenceLabel(c: number): { text: string; color: string; bg: string } {
-  if (c >= 0.8) return { text: 'High',   color: '#22c55e', bg: 'rgba(34,197,94,0.12)'  };
-  if (c >= 0.6) return { text: 'Medium', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' };
-  return               { text: 'Low',    color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' };
+function confidenceLabel(c: number) {
+  if (c >= 0.8) return { text: 'HIGH',   classes: 'bg-emerald-400 text-black' };
+  if (c >= 0.6) return { text: 'MEDIUM', classes: 'bg-amber-400 text-black' };
+  return               { text: 'LOW',    classes: 'bg-slate-400 text-black' };
 }
 
 // ─── Source Badge ──────────────────────────────────────────────────────────────
 function SourceBadge({ source }: { source?: 'twitter' | 'telegram' }) {
   if (source === 'telegram') {
     return (
-      <span
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
-        style={{ background: 'rgba(38,140,246,0.12)', color: '#4da6ff', border: '1px solid rgba(38,140,246,0.25)' }}
-      >
-        <Send size={9} /> Telegram
+      <span className="inline-flex items-center gap-1 text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-blue-600 text-white border-2 border-black">
+        <Send size={10} /> TELEGRAM
       </span>
     );
   }
   return (
-    <span
-      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
-      style={{ background: 'rgba(255,255,255,0.06)', color: '#64748b', border: '1px solid rgba(255,255,255,0.1)' }}
-    >
-      <span style={{ fontSize: 9 }}>𝕏</span> Twitter
+    <span className="inline-flex items-center gap-1 text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-black text-white border-2 border-black">
+      <span style={{ fontSize: 10 }}>𝕏</span> TWITTER
     </span>
   );
 }
 
-// ─── New Helper: Free / Effort Badge ───────────────────────────────────────
+// ─── Free / Effort Badge ───────────────────────────────────────
 function StatusBadges({ isFree, effort }: { isFree?: boolean; effort?: string }) {
   return (
     <div className="flex gap-2 mt-2">
       {isFree && (
-        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-          ✅ Free to Enter
+        <span className="inline-flex items-center gap-1 text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-emerald-400 text-black border-2 border-black">
+          ✅ FREE TO ENTER
         </span>
       )}
       {effort && (
-        <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium ${
-          effort === 'low' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
-          effort === 'medium' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
-          'bg-red-500/10 text-red-400 border border-red-500/30'
+        <span className={`inline-flex items-center gap-1 text-[10px] font-black tracking-widest uppercase px-2 py-1 border-2 border-black ${
+          effort === 'low' ? 'bg-green-400 text-black' :
+          effort === 'medium' ? 'bg-amber-400 text-black' :
+          'bg-red-500 text-white'
         }`}>
-          {effort === 'low' ? '🔥 Low Effort' : effort === 'medium' ? '⚡ Medium Effort' : '💼 High Effort'}
+          {effort === 'low' ? '🔥 LOW EFFORT' : effort === 'medium' ? '⚡ MEDIUM EFFORT' : '💼 HIGH EFFORT'}
         </span>
       )}
     </div>
@@ -168,23 +162,17 @@ function ExchangeTab({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
-      style={{
-        background: active ? `${exchange.color}22` : 'transparent',
-        border:     `1px solid ${active ? exchange.color : 'rgba(255,255,255,0.08)'}`,
-        color:      active ? exchange.color : '#94a3b8',
-        boxShadow:  active ? `0 0 12px ${exchange.color}33` : 'none',
-      }}
+      className={`flex items-center gap-2 px-4 py-2 text-sm font-black tracking-widest uppercase border-4 touch-manipulation whitespace-nowrap ${
+        active 
+          ? 'bg-black text-white border-black' 
+          : 'bg-white dark:bg-slate-800 text-black dark:text-white border-black'
+      }`}
     >
       <span>{exchange.name}</span>
       {count > 0 && (
-        <span
-          className="text-xs px-1.5 py-0.5 rounded-full font-mono"
-          style={{
-            background: active ? `${exchange.color}33` : 'rgba(255,255,255,0.06)',
-            color:      active ? exchange.color : '#64748b',
-          }}
-        >
+        <span className={`text-[10px] px-1.5 py-0.5 border-2 ${
+          active ? 'bg-yellow-400 text-black border-black' : 'bg-slate-200 text-black border-black'
+        }`}>
           {count}
         </span>
       )}
@@ -194,17 +182,9 @@ function ExchangeTab({
 
 // ─── Requirement Badge ─────────────────────────────────────────────────────────
 function RequirementBadge({ req }: { req: Requirement }) {
-  const colors: Record<string, string> = {
-    follow: '#818cf8', repost: '#34d399', reply: '#f472b6',
-    tag: '#fb923c',    like: '#f87171',   other: '#94a3b8',
-  };
-  const color = colors[req.type] || colors.other;
   return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium"
-      style={{ background: `${color}18`, color, border: `1px solid ${color}30` }}
-    >
-      <span>{REQ_ICONS[req.type]}</span>
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-white text-black border-2 border-black">
+      <span>{REQ_ICONS[req.type] || '✅'}</span>
       {req.description}
     </span>
   );
@@ -213,7 +193,7 @@ function RequirementBadge({ req }: { req: Requirement }) {
 // ─── Giveaway Card ─────────────────────────────────────────────────────────────
 function GiveawayCard({ g }: { g: Giveaway }) {
   const [expanded, setExpanded] = useState(false);
-  const { text: confText, color: confColor, bg: confBg } = confidenceLabel(g.confidence);
+  const { text: confText, classes: confClasses } = confidenceLabel(g.confidence);
   const isTelegram = g.source === 'telegram';
   const postUrl    = isTelegram ? (g.telegramMessageUrl || g.tweetUrl) : g.tweetUrl;
   const agentPrompt = encodeURIComponent(
@@ -221,71 +201,45 @@ function GiveawayCard({ g }: { g: Giveaway }) {
   );
 
   return (
-    <div
-      className="rounded-xl overflow-hidden transition-all duration-300"
-      style={{ background: 'rgba(15,20,35,0.85)', border: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(12px)' }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLDivElement;
-        el.style.border    = '1px solid rgba(255,255,255,0.14)';
-        el.style.transform = 'translateY(-2px)';
-        el.style.boxShadow = '0 8px 32px rgba(0,0,0,0.3)';
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLDivElement;
-        el.style.border    = '1px solid rgba(255,255,255,0.07)';
-        el.style.transform = 'translateY(0)';
-        el.style.boxShadow = 'none';
-      }}
-    >
+    <div className="flex flex-col bg-white dark:bg-slate-900 border-4 border-black transition-none overflow-hidden hover:-translate-y-1 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
       {/* Header */}
-      <div className="p-4 pb-0 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
-          >
+      <div className="p-4 border-b-4 border-black bg-slate-100 dark:bg-slate-800 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 bg-black flex items-center justify-center text-sm font-black text-white border-2 border-black">
             {g.exchangeDisplayName.substring(0, 2).toUpperCase()}
           </div>
           <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="text-sm font-semibold text-white">{g.exchangeDisplayName}</span>
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-sm font-black tracking-widest uppercase text-black dark:text-white">{g.exchangeDisplayName}</span>
               {g.isVerifiedGiveaway && (
-                <span title="High-confidence" className="inline-flex">
-                  <Shield size={12} className="text-emerald-400" />
-                </span>
+                <Shield size={14} className="text-emerald-500" />
               )}
               <SourceBadge source={g.source} />
-              <StatusBadges isFree={g.isFreeToEnter} effort={g.effortLevel} />   {/* ← NEW */}
             </div>
-            <span className="text-xs text-slate-500">
+            <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase">
               {isTelegram ? (g.telegramChannel ? `@${g.telegramChannel}` : `@${g.authorHandle}`) : `@${g.authorHandle}`}
             </span>
+            <StatusBadges isFree={g.isFreeToEnter} effort={g.effortLevel} />
           </div>
         </div>
-        <span
-          className="text-xs font-mono px-2 py-0.5 rounded-full shrink-0"
-          style={{ background: confBg, color: confColor, border: `1px solid ${confColor}30` }}
-        >
+        <span className={`text-[10px] font-black px-2 py-1 border-2 border-black uppercase tracking-widest ${confClasses}`}>
           {confText} · {Math.round(g.confidence * 100)}%
         </span>
       </div>
 
       {/* Prize */}
       {g.prizePool && (
-        <div className="px-4 pt-3">
-          <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
-            <Trophy size={14} className="text-amber-400 shrink-0" />
-            <span className="text-sm font-semibold text-amber-300">{g.prizePool}</span>
-          </div>
+        <div className="border-b-4 border-black bg-amber-400 p-3 flex items-center gap-2">
+          <Trophy size={16} className="text-black shrink-0" />
+          <span className="text-sm font-black text-black tracking-widest uppercase">{g.prizePool}</span>
         </div>
       )}
 
       {/* Coins */}
       {g.coins.length > 0 && (
-        <div className="px-4 pt-2 flex flex-wrap gap-1.5">
+        <div className="p-3 border-b-4 border-black flex flex-wrap gap-2 bg-slate-50 dark:bg-slate-800">
           {g.coins.map(coin => (
-            <span key={coin} className="text-xs px-2 py-0.5 rounded font-mono"
-              style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>
+            <span key={coin} className="text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-indigo-400 text-black border-2 border-black">
               {coin}
             </span>
           ))}
@@ -293,31 +247,31 @@ function GiveawayCard({ g }: { g: Giveaway }) {
       )}
 
       {/* Text */}
-      <div className="px-4 pt-3">
+      <div className="p-4 flex-1">
         {g.telegramHtml ? (
           <div 
-            className="text-sm text-slate-300 leading-relaxed prose prose-invert max-w-none"
+            className="text-sm text-black dark:text-white font-bold leading-relaxed break-words"
             dangerouslySetInnerHTML={{ __html: g.telegramHtml }} 
           />
         ) : (
-          <p className="text-sm text-slate-300 leading-relaxed"
+          <p className="text-sm text-black dark:text-white font-bold leading-relaxed"
             style={{ display: '-webkit-box', WebkitLineClamp: expanded ? 'unset' : 4, WebkitBoxOrient: 'vertical', overflow: expanded ? 'visible' : 'hidden' }}>
             {g.tweetText}
           </p>
         )}
 
         {g.tweetText.length > 180 && !g.telegramHtml && (
-          <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 mt-1">
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {expanded ? 'Show less' : 'Show more'}
+          <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-black dark:hover:text-white mt-2 p-1 border-2 border-transparent hover:border-black">
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {expanded ? 'SHOW LESS' : 'SHOW MORE'}
           </button>
         )}
       </div>
 
-      {/* Embedded Links - NEW */}
+      {/* Embedded Links */}
       {g.embeddedLinks && g.embeddedLinks.length > 0 && (
-        <div className="px-4 pt-3">
-          <p className="text-xs text-slate-500 mb-2">Important Links</p>
+        <div className="px-4 pb-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-black dark:text-white mb-2 bg-yellow-400 inline-block px-1 border-2 border-black">LINKS</p>
           <div className="flex flex-wrap gap-2">
             {g.embeddedLinks.map((link, i) => (
               <a
@@ -325,10 +279,10 @@ function GiveawayCard({ g }: { g: Giveaway }) {
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition-colors"
+                className="inline-flex items-center gap-1.5 text-[10px] font-black tracking-widest uppercase px-2 py-1.5 bg-blue-600 text-white border-2 border-black hover:bg-black hover:text-white touch-manipulation"
               >
                 <ExternalLink size={12} />
-                {link.text || 'Open Link'}
+                {link.text || 'OPEN LINK'}
               </a>
             ))}
           </div>
@@ -337,48 +291,46 @@ function GiveawayCard({ g }: { g: Giveaway }) {
 
       {/* Requirements */}
       {g.requirements.length > 0 && (
-        <div className="px-4 pt-3">
-          <p className="text-xs text-slate-500 mb-1.5 uppercase tracking-wider">How to enter</p>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="px-4 pb-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-black dark:text-white mb-2 bg-emerald-400 inline-block px-1 border-2 border-black">HOW TO ENTER</p>
+          <div className="flex flex-wrap gap-2">
             {g.requirements.map((req, i) => <RequirementBadge key={i} req={req} />)}
           </div>
         </div>
       )}
 
       {/* Footer */}
-      <div className="px-4 pt-3 pb-4 flex items-center justify-between mt-1">
-        <div className="flex items-center gap-3 text-xs text-slate-600">
+      <div className="p-3 border-t-4 border-black bg-slate-100 dark:bg-slate-800 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3 text-[10px] font-black tracking-widest text-slate-600 uppercase">
           {isTelegram ? (
             <>
               {(g.viewCount ?? 0) > 0 && (
                 <span className="flex items-center gap-1">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   {(g.viewCount ?? 0).toLocaleString()}
                 </span>
               )}
               {(g.forwardCount ?? 0) > 0 && (
-                <span className="flex items-center gap-1"><Repeat2 size={11} />{(g.forwardCount ?? 0).toLocaleString()}</span>
+                <span className="flex items-center gap-1"><Repeat2 size={12} />{(g.forwardCount ?? 0).toLocaleString()}</span>
               )}
             </>
           ) : (
-            <>
-              <span className="flex items-center gap-1"><Heart size={11} />{g.likeCount.toLocaleString()}</span>
-              <span className="flex items-center gap-1"><Repeat2 size={11} />{g.retweetCount.toLocaleString()}</span>
+             <>
+              <span className="flex items-center gap-1"><Heart size={12} />{g.likeCount.toLocaleString()}</span>
+              <span className="flex items-center gap-1"><Repeat2 size={12} />{g.retweetCount.toLocaleString()}</span>
             </>
           )}
-          <span className="flex items-center gap-1"><Clock size={11} />{timeAgo(g.tweetCreatedAt)}</span>
+          <span className="flex items-center gap-1"><Clock size={12} />{timeAgo(g.tweetCreatedAt)}</span>
         </div>
         <div className="flex items-center gap-2">
           <Link href={`/chat?q=${agentPrompt}`}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
-            style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>
-            <MessageSquare size={11} /> Ask Agent
+            className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-2 bg-fuchsia-600 text-white border-2 border-black hover:bg-black hover:text-white touch-manipulation">
+            <MessageSquare size={12} /> ASK AGENT
           </Link>
           <a href={postUrl} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
-            style={{ background: isTelegram ? 'rgba(38,140,246,0.08)' : 'rgba(255,255,255,0.06)', color: isTelegram ? '#4da6ff' : '#94a3b8', border: `1px solid ${isTelegram ? 'rgba(38,140,246,0.2)' : 'rgba(255,255,255,0.08)'}` }}>
-            {isTelegram ? <Send size={11} /> : <ExternalLink size={11} />}
-            {isTelegram ? 'View Channel' : 'View Post'}
+            className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-2 bg-black text-white border-2 border-black hover:bg-yellow-400 hover:text-black touch-manipulation">
+            {isTelegram ? <Send size={12} /> : <ExternalLink size={12} />}
+            {isTelegram ? 'VIEW CHAT' : 'VIEW POST'}
           </a>
         </div>
       </div>
@@ -395,28 +347,23 @@ function ScanToast({ result, onClose }: { result: ScanResult & { source: string 
 
   const isSuccess = result.success;
   return (
-    <div
-      className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-xl text-sm max-w-sm shadow-2xl"
-      style={{
-        background: isSuccess ? 'rgba(20,30,20,0.97)' : 'rgba(30,15,15,0.97)',
-        border: `1px solid ${isSuccess ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-        backdropFilter: 'blur(12px)',
-      }}
-    >
+    <div className={`fixed bottom-6 right-6 z-50 flex items-start gap-4 p-4 border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] ${
+      isSuccess ? 'bg-emerald-400 text-black' : 'bg-red-600 text-white'
+    }`}>
       {isSuccess
-        ? <CheckCircle size={16} className="text-emerald-400 mt-0.5 shrink-0" />
-        : <XCircle    size={16} className="text-red-400 mt-0.5 shrink-0" />}
+        ? <CheckCircle size={24} className="shrink-0" />
+        : <XCircle    size={24} className="shrink-0" />}
       <div className="flex-1">
-        <p className={`font-medium ${isSuccess ? 'text-emerald-300' : 'text-red-300'}`}>
-          {result.source} Scan {isSuccess ? 'Complete' : 'Failed'}
+        <p className="font-black tracking-widest uppercase">
+          {result.source} SCAN {isSuccess ? 'COMPLETE' : 'FAILED'}
         </p>
-        <p className="text-slate-400 text-xs mt-0.5">
+        <p className="text-xs font-bold mt-1 uppercase">
           {isSuccess
-            ? `${result.added ?? 0} new giveaways added (${result.total ?? 0} total processed)`
+            ? `${result.added ?? 0} NEW ADDED (${result.total ?? 0} PROCESSED)`
             : result.error}
         </p>
       </div>
-      <button onClick={onClose} className="text-slate-600 hover:text-slate-400 ml-1">✕</button>
+      <button onClick={onClose} className="p-1 border-2 border-transparent hover:border-black touch-manipulation">✕</button>
     </div>
   );
 }
@@ -436,36 +383,29 @@ function AdminScanButtons({
   exchange:         string;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      {/* Divider */}
-      <div className="w-px h-5 bg-white/10 mx-1" />
-
-      {/* X / Twitter scan */}
+    <div className="flex items-center gap-2 border-l-4 border-black pl-3 ml-1">
       <button
         onClick={onScanX}
         disabled={scanningX || scanningTelegram}
         title={`Trigger X scan${exchange !== 'all' ? ` for ${exchange}` : ''}`}
-        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-all disabled:opacity-50 font-medium"
-        style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.12)' }}
+        className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-2 bg-black text-white border-2 border-black disabled:opacity-50 hover:bg-yellow-400 hover:text-black touch-manipulation"
       >
         {scanningX
           ? <RefreshCw size={12} className="animate-spin" />
-          : <span style={{ fontSize: 11, fontWeight: 700 }}>𝕏</span>}
-        {scanningX ? 'Scanning…' : 'Scan X'}
+          : <span style={{ fontSize: 12, fontWeight: 900 }}>𝕏</span>}
+        {scanningX ? 'SCANNING…' : 'SCAN X'}
       </button>
 
-      {/* Telegram scan */}
       <button
         onClick={onScanTelegram}
         disabled={scanningX || scanningTelegram}
         title={`Trigger Telegram scan${exchange !== 'all' ? ` for ${exchange}` : ''}`}
-        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-all disabled:opacity-50 font-medium"
-        style={{ background: 'rgba(38,140,246,0.1)', color: '#4da6ff', border: '1px solid rgba(38,140,246,0.2)' }}
+        className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-2 bg-blue-600 text-white border-2 border-black disabled:opacity-50 hover:bg-yellow-400 hover:text-black touch-manipulation"
       >
         {scanningTelegram
           ? <RefreshCw size={12} className="animate-spin" />
           : <Send size={12} />}
-        {scanningTelegram ? 'Scanning…' : 'Scan Telegram'}
+        {scanningTelegram ? 'SCANNING…' : 'SCAN TELEGRAM'}
       </button>
     </div>
   );
@@ -485,7 +425,6 @@ export default function GiveawaysPage() {
   const [error,          setError]          = useState<string | null>(null);
   const [counts,         setCounts]         = useState<Record<string, number>>({});
 
-  // Admin scan state
   const [scanningX,        setScanningX]        = useState(false);
   const [scanningTelegram, setScanningTelegram] = useState(false);
   const [scanToast,        setScanToast]        = useState<(ScanResult & { source: string }) | null>(null);
@@ -526,7 +465,7 @@ export default function GiveawaysPage() {
         map.all    += s.count;
       }
       setCounts(map);
-    } catch { /* stats are optional */ }
+    } catch { }
   }, []);
 
   useEffect(() => { fetchData(); fetchStats(); }, []);
@@ -551,7 +490,6 @@ export default function GiveawaysPage() {
 
   const handleRefresh = async () => { await fetchData(); await fetchStats(); };
 
-  // ── Admin: trigger X scan ─────────────────────────────────────────────────
   const handleScanX = async () => {
     setScanningX(true);
     try {
@@ -569,7 +507,6 @@ export default function GiveawaysPage() {
     }
   };
 
-  // ── Admin: trigger Telegram scan ──────────────────────────────────────────
   const handleScanTelegram = async () => {
     setScanningTelegram(true);
     try {
@@ -588,72 +525,60 @@ export default function GiveawaysPage() {
   };
 
   const exchanges: ExchangeMeta[] = data?.exchanges || [];
-  const allTab = { key: 'all', name: 'All Exchanges', color: '#6366f1', handle: '' };
+  const allTab = { key: 'all', name: 'ALL EXCHANGES', color: '', handle: '' };
 
   return (
-    <div className="min-h-screen" style={{ background: '#080c14' }}>
-      {/* Background */}
-      <div className="fixed inset-0 pointer-events-none"
-        style={{ backgroundImage: `radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.12) 0%, transparent 70%)` }} />
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-8">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
 
         {/* ── Page Header ── */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
           <div>
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
-                <Gift size={16} className="text-indigo-400" />
+            <div className="flex items-center gap-4 mb-2">
+              <div className="w-12 h-12 bg-yellow-400 border-4 border-black flex items-center justify-center">
+                <Gift size={24} className="text-black" />
               </div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">Live Giveaways</h1>
+              <h1 className="text-3xl font-black text-black dark:text-white tracking-widest uppercase bg-white dark:bg-slate-800 inline-block px-3 py-1 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                LIVE GIVEAWAYS
+              </h1>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap mt-3">
               {counts.all > 0 && (
-                <span className="text-xs font-mono px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
-                  {counts.all} active
+                <span className="text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-black text-white border-2 border-black">
+                  {counts.all} ACTIVE
                 </span>
               )}
-              {/* Admin badge */}
               {isAdmin && (
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}>
+                <span className="text-[10px] font-black tracking-widest uppercase px-2 py-1 bg-red-600 text-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                   ADMIN
                 </span>
               )}
             </div>
-            <p className="text-sm text-slate-500">
-              CEX-verified promotions from official X accounts &amp; Telegram channels
-            </p>
           </div>
 
-          {/* Right controls */}
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {/* Scan timestamps */}
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2 border-4 border-black">
               {data?.lastScan && (
-                <span className="text-xs text-slate-600 flex items-center gap-1.5">
-                  <span style={{ fontSize: 10 }}>𝕏</span> {timeAgo(data.lastScan)}
+                <span className="text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 text-black dark:text-white">
+                  <span style={{ fontSize: 12 }}>𝕏</span> {timeAgo(data.lastScan)}
                 </span>
               )}
               {data?.lastTelegramScan && (
-                <span className="text-xs text-slate-600 flex items-center gap-1.5">
-                  <Send size={10} className="text-blue-500" /> {timeAgo(data.lastTelegramScan)}
+                <span className="text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 text-blue-600">
+                  <Send size={12} /> {timeAgo(data.lastTelegramScan)}
                 </span>
               )}
             </div>
 
-            {/* Refresh (always visible) */}
             <button
               onClick={handleRefresh}
               disabled={loading || scanningX || scanningTelegram}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-all disabled:opacity-50"
-              style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}
+              className="flex items-center gap-2 text-[10px] font-black tracking-widest uppercase px-4 py-3 bg-white dark:bg-slate-800 text-black dark:text-white border-4 border-black hover:bg-yellow-400 hover:text-black disabled:opacity-50 touch-manipulation shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-              Refresh
+              REFRESH
             </button>
 
-            {/* Admin-only scan buttons */}
             {isAdmin && (
               <AdminScanButtons
                 onScanX={handleScanX}
@@ -666,65 +591,52 @@ export default function GiveawaysPage() {
           </div>
         </div>
 
-        {/* ── Safety Banner ── */}
-        <div className="flex items-center gap-3 rounded-xl px-4 py-3 mb-6 text-sm"
-          style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
-          <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-          <span className="text-amber-200/70">
-            Only participate through <strong className="text-amber-300">official exchange posts</strong>.
-            Never send funds first. Use the <strong className="text-amber-300">Ask Agent</strong> button for guidance.
+        {/* ── Safety Banner ──
+        <div className="flex items-center gap-4 bg-red-600 text-white border-4 border-black p-4 mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          <AlertTriangle size={24} className="shrink-0 text-yellow-400" />
+          <span className="text-xs font-black tracking-widest uppercase leading-relaxed">
+            ONLY PARTICIPATE THROUGH OFFICIAL EXCHANGE POSTS. NEVER SEND FUNDS FIRST. USE THE "ASK AGENT" BUTTON FOR GUIDANCE.
           </span>
         </div>
+         */}
 
         {/* ── Source Filter ── */}
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-3 mb-6">
           {SOURCE_OPTIONS.map(opt => (
             <button key={opt.value} onClick={() => handleSourceChange(opt.value)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all font-medium"
-              style={{
-                background: activeSource === opt.value
-                  ? opt.value === 'telegram' ? 'rgba(38,140,246,0.15)' : 'rgba(99,102,241,0.15)'
-                  : 'rgba(255,255,255,0.04)',
-                color: activeSource === opt.value
-                  ? opt.value === 'telegram' ? '#4da6ff' : '#818cf8'
-                  : '#64748b',
-                border: `1px solid ${activeSource === opt.value
-                  ? opt.value === 'telegram' ? 'rgba(38,140,246,0.3)' : 'rgba(99,102,241,0.3)'
-                  : 'rgba(255,255,255,0.06)'}`,
-              }}>
-              {opt.value === 'telegram' && <Send size={11} />}
-              {opt.value === 'twitter'  && <span style={{ fontSize: 11 }}>𝕏</span>}
+              className={`flex items-center gap-2 text-[10px] font-black tracking-widest uppercase px-4 py-2 border-4 border-black touch-manipulation ${
+                activeSource === opt.value
+                  ? 'bg-black text-white shadow-[4px_4px_0px_0px_rgba(250,204,21,1)]'
+                  : 'bg-white dark:bg-slate-800 text-black dark:text-white hover:bg-yellow-400 hover:text-black'
+              }`}>
+              {opt.value === 'telegram' && <Send size={12} />}
+              {opt.value === 'twitter'  && <span style={{ fontSize: 12 }}>𝕏</span>}
               {opt.label}
             </button>
           ))}
         </div>
 
         {/* ── Exchange Tabs ── */}
-        <div className="overflow-x-auto pb-2 mb-6 scrollbar-none">
-          <div className="flex gap-2 min-w-max">
-            <ExchangeTab exchange={allTab} active={activeExchange === 'all'} count={counts.all || 0} onClick={() => handleExchangeChange('all')} />
-            {exchanges.map(ex => (
-              <ExchangeTab key={ex.key} exchange={ex} active={activeExchange === ex.key} count={counts[ex.key] || 0} onClick={() => handleExchangeChange(ex.key)} />
-            ))}
-          </div>
+        <div className="overflow-x-auto pb-4 mb-6 scrollbar-none flex gap-3 min-w-max border-b-4 border-black">
+          <ExchangeTab exchange={allTab} active={activeExchange === 'all'} count={counts.all || 0} onClick={() => handleExchangeChange('all')} />
+          {exchanges.map(ex => (
+            <ExchangeTab key={ex.key} exchange={ex} active={activeExchange === ex.key} count={counts[ex.key] || 0} onClick={() => handleExchangeChange(ex.key)} />
+          ))}
         </div>
 
         {/* ── Sort Bar ── */}
-        <div className="flex items-center justify-between mb-5">
-          <p className="text-sm text-slate-500">
-            {loading ? 'Loading…' : `${data?.pagination.total ?? 0} giveaways`}
+        <div className="flex items-center justify-between mb-6 bg-white dark:bg-slate-800 border-4 border-black p-3">
+          <p className="text-[10px] font-black tracking-widest uppercase text-black dark:text-white bg-yellow-400 px-2 py-1 border-2 border-black inline-block">
+            {loading ? 'LOADING…' : `${data?.pagination.total ?? 0} GIVEAWAYS`}
           </p>
-          <div className="flex items-center gap-2">
-            <Filter size={13} className="text-slate-600" />
-            <div className="flex gap-1">
+          <div className="flex items-center gap-3">
+            <Filter size={16} className="text-black dark:text-white" />
+            <div className="flex gap-2">
               {SORT_OPTIONS.map(opt => (
                 <button key={opt.value} onClick={() => handleSortChange(opt.value)}
-                  className="text-xs px-3 py-1.5 rounded-lg transition-all"
-                  style={{
-                    background: sort === opt.value ? 'rgba(99,102,241,0.15)' : 'transparent',
-                    color:      sort === opt.value ? '#818cf8' : '#64748b',
-                    border:     `1px solid ${sort === opt.value ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)'}`,
-                  }}>
+                  className={`text-[10px] font-black tracking-widest uppercase px-3 py-1.5 border-2 border-black touch-manipulation ${
+                    sort === opt.value ? 'bg-blue-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-black dark:text-white hover:bg-yellow-400 hover:text-black'
+                  }`}>
                   {opt.label}
                 </button>
               ))}
@@ -734,29 +646,29 @@ export default function GiveawaysPage() {
 
         {/* ── Error ── */}
         {error && (
-          <div className="rounded-xl p-4 mb-6 text-sm text-red-300"
-            style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+          <div className="bg-red-600 text-white border-4 border-black p-4 mb-6 text-sm font-black tracking-widest uppercase">
             {error}
           </div>
         )}
 
         {/* ── Grid ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {loading && Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-xl h-56 animate-pulse"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }} />
+            <div key={i} className="bg-white dark:bg-slate-800 border-4 border-black h-64 animate-pulse p-4 flex flex-col">
+              <div className="h-10 w-full bg-slate-300 dark:bg-slate-700 mb-4 border-2 border-black"></div>
+              <div className="flex-1 bg-slate-200 dark:bg-slate-600 border-2 border-black"></div>
+            </div>
           ))}
           {!loading && (data?.giveaways || []).map(g => <GiveawayCard key={g._id} g={g} />)}
           {!loading && !(data?.giveaways?.length) && (
-            <div className="col-span-full flex flex-col items-center justify-center py-24 text-center">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)' }}>
-                <Gift size={24} className="text-indigo-400" />
+            <div className="col-span-full flex flex-col items-center justify-center py-24 bg-white dark:bg-slate-800 border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center">
+              <div className="w-20 h-20 bg-yellow-400 border-4 border-black flex items-center justify-center mb-6">
+                <Gift size={32} className="text-black" />
               </div>
-              <p className="text-slate-300 font-medium mb-1">No giveaways found</p>
-              <p className="text-sm text-slate-500 max-w-sm">
-                Telegram channels scan every 24h, X every 2h.
-                {isAdmin && ' Use the Scan buttons above to trigger a manual scan.'}
+              <p className="text-2xl font-black text-black dark:text-white uppercase tracking-widest mb-2">NO GIVEAWAYS FOUND</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest max-w-md">
+                TELEGRAM CHANNELS SCAN EVERY 24H, X EVERY 2H.
+                {isAdmin && ' USE THE SCAN BUTTONS ABOVE TO TRIGGER A MANUAL SCAN.'}
               </p>
             </div>
           )}
@@ -764,55 +676,53 @@ export default function GiveawaysPage() {
 
         {/* ── Pagination ── */}
         {data && data.pagination.pages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
+          <div className="flex items-center justify-center gap-4 mt-12">
             <button disabled={page <= 1}
               onClick={() => { const p = page - 1; setPage(p); fetchData({ page: p }); }}
-              className="text-sm px-4 py-2 rounded-lg disabled:opacity-30 transition-all"
-              style={{ background: 'rgba(255,255,255,0.04)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>
-              Previous
+              className="text-[10px] font-black uppercase tracking-widest px-6 py-3 bg-white dark:bg-slate-800 text-black dark:text-white border-4 border-black disabled:opacity-50 hover:bg-yellow-400 hover:text-black touch-manipulation shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] disabled:shadow-none">
+              PREVIOUS
             </button>
-            <span className="text-xs text-slate-600 font-mono">{page} / {data.pagination.pages}</span>
+            <span className="text-sm font-black tracking-widest uppercase bg-black text-white px-4 py-2 border-4 border-black">
+              {page} / {data.pagination.pages}
+            </span>
             <button disabled={page >= data.pagination.pages}
               onClick={() => { const p = page + 1; setPage(p); fetchData({ page: p }); }}
-              className="text-sm px-4 py-2 rounded-lg disabled:opacity-30 transition-all"
-              style={{ background: 'rgba(255,255,255,0.04)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}>
-              Next
+              className="text-[10px] font-black uppercase tracking-widest px-6 py-3 bg-white dark:bg-slate-800 text-black dark:text-white border-4 border-black disabled:opacity-50 hover:bg-yellow-400 hover:text-black touch-manipulation shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] disabled:shadow-none">
+              NEXT
             </button>
           </div>
         )}
 
         {/* ── Telegram Info ── */}
-        <div className="mt-8 rounded-xl p-4 flex items-start gap-3 text-sm"
-          style={{ background: 'rgba(38,140,246,0.05)', border: '1px solid rgba(38,140,246,0.12)' }}>
-          <Send size={14} className="text-blue-400 mt-0.5 shrink-0" />
+        <div className="mt-12 bg-blue-600 text-white border-4 border-black p-6 flex flex-col md:flex-row items-start gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+          <div className="bg-black p-3 border-4 border-black inline-flex">
+            <Send size={24} className="text-blue-400" />
+          </div>
           <div>
-            <p className="text-blue-300 font-medium mb-0.5">Telegram channel scanning active</p>
-            <p className="text-slate-500 text-xs">
-              Official exchange Telegram channels are scanned every 24 hours automatically.
-              Posts are scored using the same confidence system as X posts.
-              {isAdmin && ' Use "Scan Telegram" above to trigger an immediate scan.'}
+            <p className="text-lg font-black tracking-widest uppercase mb-2">TELEGRAM SCANNING ACTIVE</p>
+            <p className="text-xs font-bold uppercase tracking-widest leading-relaxed text-blue-100 max-w-3xl">
+              OFFICIAL EXCHANGE TELEGRAM CHANNELS ARE SCANNED EVERY 24 HOURS AUTOMATICALLY.
+              POSTS ARE SCORED USING THE SAME CONFIDENCE SYSTEM AS X POSTS.
+              {isAdmin && ' USE "SCAN TELEGRAM" ABOVE TO TRIGGER AN IMMEDIATE SCAN.'}
             </p>
           </div>
         </div>
 
         {/* ── Agent CTA ── */}
-        <div className="mt-6 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-5"
-          style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.06) 100%)', border: '1px solid rgba(99,102,241,0.2)' }}>
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
-            <Zap size={20} className="text-indigo-400" />
+        <div className="mt-8 bg-fuchsia-600 text-white border-4 border-black p-8 flex flex-col md:flex-row items-start md:items-center gap-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+          <div className="w-16 h-16 bg-yellow-400 border-4 border-black flex items-center justify-center shrink-0">
+            <Zap size={32} className="text-black" />
           </div>
           <div className="flex-1">
-            <h3 className="text-white font-semibold mb-1">Not sure how to participate?</h3>
-            <p className="text-sm text-slate-400">
-              Ask the ChainWise agent — it will break down exact steps, verify the post is legitimate,
-              and tell you exactly what to do to enter any giveaway.
+            <h3 className="text-2xl font-black uppercase tracking-widest mb-2 text-black">NOT SURE HOW TO PARTICIPATE?</h3>
+            <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-100 leading-relaxed max-w-2xl">
+              ASK THE CHAINWISE AGENT — IT WILL BREAK DOWN EXACT STEPS, VERIFY THE POST IS LEGITIMATE,
+              AND TELL YOU EXACTLY WHAT TO DO TO ENTER ANY GIVEAWAY.
             </p>
           </div>
           <Link href="/chat"
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
-            style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' }}>
-            <MessageSquare size={15} /> Open Agent
+            className="flex items-center gap-2 px-6 py-4 bg-black text-white border-4 border-black text-sm font-black tracking-widest uppercase whitespace-nowrap hover:bg-yellow-400 hover:text-black touch-manipulation">
+            <MessageSquare size={16} /> OPEN AGENT
           </Link>
         </div>
 

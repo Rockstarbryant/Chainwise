@@ -114,7 +114,7 @@ const removeNetwork = async (req, res, next) => {
 const updateExchange = async (req, res, next) => {
   try {
     const { exchange } = req.params;
-    const allowed = ['p2p', 'p2pMinUSD', 'p2pCountries', 'displayName', 'website', 'twitterHandle'];
+    const allowed = ['p2p', 'p2pCountries', 'displayName', 'website', 'twitterHandle'];
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];

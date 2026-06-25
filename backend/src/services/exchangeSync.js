@@ -15,6 +15,8 @@ const CCXT_MAP = {
   coinex:  'coinex',
   okx:     'okx',
   mexc:    'mexc',
+  kraken: 'kraken',
+  phemex: 'phemex',
   bingx:   'bingx',
   bitmart: 'bitmart',
   huobi:   'htx',
@@ -58,6 +60,20 @@ function buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase = '') 
       apiKey,
       secret:          apiSecret,
       password:        passphrase,
+      timeout:         30000,
+      enableRateLimit: true,
+      options:         { defaultType: 'spot' },
+    },
+    kraken: {
+      apiKey,
+      secret:          apiSecret,
+      timeout:         30000,
+      enableRateLimit: true,
+      options:         { defaultType: 'spot' },
+    },
+    phemex: {
+      apiKey,
+      secret:          apiSecret,
       timeout:         30000,
       enableRateLimit: true,
       options:         { defaultType: 'spot' },
@@ -432,6 +448,246 @@ async function fetchBitmartFeeData(apiKey, apiSecret, memo) {
   return symbolMap;
 }
 
+// Normalize Kraken's verbose network names to clean chainIds
+function krakenNetworkToChainId(network) {
+  const n = network.toLowerCase();
+  if (n.includes('lightning'))                      return 'lightning';
+  if (n.includes('bitcoin') && !n.includes('kbtc')) return 'btc';
+  if (n === 'ethereum' || n === 'ethereum (kbtc)')  return n.includes('kbtc') ? 'kbtc-eth' : 'erc20';
+  if (n.includes('arbitrum nova'))                  return 'arbitrum-nova';
+  if (n.includes('arbitrum'))                       return 'arbitrum';
+  if (n.includes('op mainnet') || n === 'optimism') return 'optimism';
+  if (n.includes('base'))                           return 'base';
+  if (n.includes('zksync'))                         return 'zksync';
+  if (n.includes('linea'))                          return 'linea';
+  if (n.includes('polygon'))                        return 'polygon';
+  if (n.includes('avalanche'))                      return 'avax';
+  if (n.includes('solana'))                         return 'solana';
+  if (n.includes('tron'))                           return 'trc20';
+  if (n.includes('the open network') || n === 'ton') return 'ton';
+  if (n.includes('aptos'))                          return 'aptos';
+  if (n.includes('xrp') || n === 'xrp')            return 'xrp';
+  if (n.includes('cardano'))                        return 'ada';
+  if (n.includes('polkadot'))                       return 'dot';
+  if (n.includes('cosmos'))                         return 'cosmos';
+  if (n.includes('near'))                           return 'near';
+  if (n.includes('stellar'))                        return 'xlm';
+  if (n.includes('litecoin'))                       return 'ltc';
+  if (n.includes('dogecoin'))                       return 'doge';
+  if (n.includes('monero'))                         return 'xmr';
+  if (n.includes('filecoin'))                       return 'fil';
+  if (n.includes('sui'))                            return 'sui';
+  if (n.includes('injective'))                      return 'injective';
+  if (n.includes('ink'))                            return 'ink';
+  if (n.includes('unichain'))                       return 'unichain';
+  if (n.includes('sei'))                            return 'sei';
+  if (n.includes('flare'))                          return 'flare';
+  if (n.includes('conflux'))                        return 'conflux';
+  if (n.includes('plasma'))                         return 'plasma';
+  if (n.includes('xlayer') || n.includes('x layer')) return 'xlayer';
+  if (n.includes('hyperevm'))                       return 'hyperevm';
+  if (n.includes('tempo'))                          return 'tempo';
+  // fallback — slugify the raw network name
+  return network.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+async function fetchKrakenFeeData(apiKey, apiSecret) {
+  logger.info('[sync] Fetching kraken currencies list...');
+  const exchange = buildExchangeInstance('kraken', apiKey, apiSecret);
+  const currencies = await exchange.fetchCurrencies();
+  logger.info(`[sync] kraken: ${Object.keys(currencies).length} currencies in list`);
+
+  // Filter to active crypto-only entries — skip fiat, staking tokens (.S, .P),
+  // hold accounts (.HOLD, .M), and any coin with a dot in the symbol
+  const cryptoEntries = Object.entries(currencies).filter(([symbol, cur]) => {
+    if (!cur || !cur.active)          return false;
+    if (cur.type === 'fiat')          return false;
+    if (symbol.includes('.'))         return false;  // ADA.S, DOT.P, EUR.M etc.
+    if (symbol.includes('HOLD'))      return false;
+    if (/^[A-Z]{3,4}$/.test(symbol) && ['USD','EUR','GBP','CAD','AUD','CHF','JPY','ARS','BRL','CLP','COP','DKK','GEL','GHS','LKR','MXN','PLN','SEK','UGX','VND','XOF'].includes(symbol)) return false;
+    return true;
+  });
+
+  logger.info(`[sync] kraken: ${cryptoEntries.length} crypto currencies to fetch fees for`);
+
+  const coinMap    = {};
+  let networkCount = 0;
+  let errorCount   = 0;
+  let emptyCount   = 0;
+
+  // Process in batches of 5, 1.2s delay between batches
+  // Kraken private endpoint tier: ~1 req/sec sustained, bursts OK
+  const BATCH_SIZE  = 105;
+  const BATCH_DELAY = 1200; // ms
+
+  for (let i = 0; i < cryptoEntries.length; i += BATCH_SIZE) {
+    const batch = cryptoEntries.slice(i, i + BATCH_SIZE);
+
+    await Promise.all(batch.map(async ([symbol, cur]) => {
+      try {
+        const res     = await exchange.privatePostWithdrawMethods({ asset: cur.id });
+        const methods = res?.result ?? [];
+
+        if (!methods.length) {
+          emptyCount++;
+          return;
+        }
+
+        const networks = methods.map(m => {
+          const withdrawFee = parseFloat(m.fee?.fee ?? 0) || 0;
+          const minWithdraw = parseFloat(m.minimum   ?? 0) || 0;
+          const chainId     = krakenNetworkToChainId(m.network || m.method);
+
+          return {
+            chain:          m.network || m.method,
+            chainId,
+            withdrawFee,
+            withdrawFeeUSD: null,
+            minWithdraw,
+            minDeposit:     0,
+            depositFee:     0,
+            arrivalMins:    estimateArrivalMins(chainId),
+            isActive:       true,
+            dataSource:     'api',
+            lastSynced:     new Date(),
+          };
+        });
+
+        coinMap[symbol.toUpperCase()] = networks;
+        networkCount += networks.length;
+      } catch (err) {
+        // Many Kraken assets return "EFunding:Unknown asset" for delisted/unsupported coins
+        if (!err.message?.includes('Unknown asset') && !err.message?.includes('EFunding')) {
+          logger.warn(`[sync] kraken: ${symbol} (${cur.id}) — ${err.message}`);
+        }
+        errorCount++;
+      }
+    }));
+
+    // Delay between batches — skip delay on last batch
+    if (i + BATCH_SIZE < cryptoEntries.length) {
+      await new Promise(r => setTimeout(r, BATCH_DELAY));
+    }
+
+    // Progress log every 50 coins
+    if ((i + BATCH_SIZE) % 50 === 0) {
+      logger.info(`[sync] kraken: progress ${Math.min(i + BATCH_SIZE, cryptoEntries.length)}/${cryptoEntries.length}`);
+    }
+  }
+
+  logger.info(`[sync] kraken: ${Object.keys(coinMap).length} coins, ${networkCount} networks | empty=${emptyCount} errors=${errorCount}`);
+  return coinMap;
+}
+
+async function fetchPhemexFeeData(apiKey, apiSecret) {
+  logger.info('[sync] Fetching currencies from phemex...');
+  const exchange = buildExchangeInstance('phemex', apiKey, apiSecret);
+  const currencies = await exchange.fetchCurrencies();
+  logger.info(`[sync] phemex: ${Object.keys(currencies).length} currencies returned`);
+
+   // ── TEMP DEBUG — remove after diagnosis ──────────────────────────────────
+  const sample = Object.entries(currencies).slice(0, 3);
+  for (const [sym, cur] of sample) {
+    logger.info(`[phemex-debug] ${sym}: active=${cur.active} | fee=${cur.fee} | networks=${JSON.stringify(Object.keys(cur.networks || {}))} | limits=${JSON.stringify(cur.limits)} | info_keys=${JSON.stringify(Object.keys(cur.info || {}))}`);
+  }
+
+  const coinMap = {};
+  let networkCount = 0;
+
+  for (const [symbol, currency] of Object.entries(currencies)) {
+    if (!currency || !currency.active) continue;
+
+    const networks = [];
+
+    // Phemex DOES populate networks{} but marks everything active: false.
+    // Check the raw info block instead of trusting the normalized active flag.
+    const netData = currency.networks || {};
+    const hasNetworks = Object.keys(netData).length > 0;
+
+    if (hasNetworks) {
+      for (const [networkId, net] of Object.entries(netData)) {
+        if (!net) continue;
+
+        // Phemex sets active: false on all networks — check info directly
+        const info        = net.info || {};
+        const canWithdraw = info.withdrawEnabled ?? info.withdraw ?? true;
+        const canDeposit  = info.depositEnabled  ?? info.deposit  ?? true;
+        if (!canWithdraw && !canDeposit) continue;
+
+        const withdrawFee = parseFloat(
+          net.fee               ??
+          net.withdraw?.fee     ??
+          info.withdrawFee      ??
+          info.withdrawTxFee    ??
+          currency.fee          ?? 0
+        ) || 0;
+
+        const minWithdraw = parseFloat(
+          net.limits?.withdraw?.min ??
+          net.withdraw?.min         ??
+          info.minWithdrawAmount    ??
+          currency.limits?.withdraw?.min ?? 0
+        ) || 0;
+
+        const minDeposit = parseFloat(
+          net.limits?.deposit?.min ??
+          net.deposit?.min         ??
+          info.minDepositAmount    ??
+          currency.limits?.deposit?.min ?? 0
+        ) || 0;
+
+        networks.push({
+          chain:          net.name || networkId.toUpperCase(),
+          chainId:        networkId.toLowerCase(),
+          withdrawFee,
+          withdrawFeeUSD: null,
+          minWithdraw,
+          minDeposit,
+          depositFee:     0,
+          arrivalMins:    estimateArrivalMins(networkId),
+          isActive:       true,
+          dataSource:     'api',
+          lastSynced:     new Date(),
+        });
+        networkCount++;
+      }
+    }
+
+    // Fallback: no networks populated — store top-level fee as a single entry
+    if (networks.length === 0) {
+      const withdrawFee = parseFloat(currency.fee ?? 0) || 0;
+      const minWithdraw = parseFloat(currency.limits?.withdraw?.min ?? 0) || 0;
+      const minDeposit  = parseFloat(currency.limits?.deposit?.min  ?? 0) || 0;
+
+      // Only store if there's any useful data — skip empty shells
+      if (withdrawFee === 0 && minWithdraw === 0) continue;
+
+      const chainId = (currency.id ?? symbol).toLowerCase();
+      networks.push({
+        chain:          symbol.toUpperCase(),
+        chainId,
+        withdrawFee,
+        withdrawFeeUSD: null,
+        minWithdraw,
+        minDeposit,
+        depositFee:     0,
+        arrivalMins:    estimateArrivalMins(chainId),
+        isActive:       true,
+        dataSource:     'api',
+        lastSynced:     new Date(),
+      });
+      networkCount++;
+    }
+
+    if (networks.length > 0) {
+      coinMap[symbol.toUpperCase()] = networks;
+    }
+  }
+
+  logger.info(`[sync] phemex: parsed ${Object.keys(coinMap).length} coins, ${networkCount} networks`);
+  return coinMap;
+}
+
 // ── Standard fee fetcher (all exchanges except Gate.io) ───────────────────
 async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase = '') {
   // Gate.io requires a direct API approach — CCXT never populates its fee fields
@@ -442,6 +698,8 @@ async function fetchExchangeFeeData(exchangeKey, apiKey, apiSecret, passphrase =
   if (exchangeKey === 'bitmart') {
     return fetchBitmartFeeData(apiKey, apiSecret, passphrase);
   }
+   if (exchangeKey === 'kraken')  return fetchKrakenFeeData(apiKey, apiSecret);
+   if (exchangeKey === 'phemex') return fetchPhemexFeeData(apiKey, apiSecret);
 
   logger.info(`[sync] Fetching currencies from ${exchangeKey}...`);
   const exchange = buildExchangeInstance(exchangeKey, apiKey, apiSecret, passphrase);

@@ -1,4 +1,5 @@
 const { error: sendError } = require('../../utils/response');
+const ExchangeFee = require('../models/ExchangeFee');
 
 // Validate agent chat body
 const agentRequest = (req, res, next) => {
@@ -26,7 +27,6 @@ const agentRequest = (req, res, next) => {
     }
   }
 
-  // Last message must be from user
   if (messages[messages.length - 1].role !== 'user') {
     return sendError(res, 'Last message must have role "user"', 400);
   }
@@ -34,20 +34,27 @@ const agentRequest = (req, res, next) => {
   next();
 };
 
-// Validate exchange fee params
-const exchangeParams = (req, res, next) => {
-  const { exchange } = req.params;
-  const validExchanges = ['binance', 'bybit', 'coinex', 'bitget', 'kucoin', 'gateio', 'okx'];
+// Validate exchange fee params — dynamic from DB, no hardcoded list
+const exchangeParams = async (req, res, next) => {
+  try {
+    const { exchange } = req.params;
+    const slug = exchange.toLowerCase();
 
-  if (!validExchanges.includes(exchange.toLowerCase())) {
-    return sendError(
-      res,
-      `Unknown exchange '${exchange}'. Valid: ${validExchanges.join(', ')}`,
-      400
-    );
+    const doc = await ExchangeFee.findOne({ exchange: slug }, '_id').lean();
+    if (!doc) {
+      const valid = await ExchangeFee.distinct('exchange');
+      return sendError(
+        res,
+        `Unknown exchange '${exchange}'. Valid: ${valid.sort().join(', ')}`,
+        400
+      );
+    }
+
+    req.params.exchange = slug;
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.params.exchange = exchange.toLowerCase();
-  next();
 };
 
 module.exports = { agentRequest, exchangeParams };

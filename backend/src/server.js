@@ -8,7 +8,7 @@ const requestLogger   = require('./middlewares/requestLogger');
 const { general }     = require('./middlewares/rateLimiter');
 const { notFound, globalError } = require('./middlewares/errorHandler');
 const logger = require('../utils/logger');
-
+const dexRoute = require('./routes/dex');
 const conversationsRoute = require('./routes/conversations');
 const giveawayRoutes     = require('./routes/giveaways');
 const adminRoute         = require('./routes/admin');
@@ -50,6 +50,7 @@ app.get('/health', (_, res) => {
 app.use('/api/agent',         agentRoute);
 app.use('/api/fees',          feesRoute);
 app.use('/api/conversations', conversationsRoute);
+app.use('/api/dex',           dexRoute);
 app.use('/api/feedback', feedbackRoute);
 app.use('/api/giveaways',     giveawayRoutes);
 app.use('/api/telegram',      telegramRoute);

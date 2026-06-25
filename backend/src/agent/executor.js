@@ -60,10 +60,13 @@ function exchangeNotFound(exchange) {
   };
 }
 
-// ── 1. get_withdrawal_fees ─────────────────────────────────────────────────
+// ── 1. get_withdrawal_fees
 async function getWithdrawalFees({ exchange, coin }) {
   const doc = await ExchangeFee.findOne({ exchange: exchange.toLowerCase() });
-  if (!doc) return { error: `Exchange '${exchange}' not in our database. Supported: binance, bybit, coinex, bitget, kucoin, gateio` };
+  if (!doc) {
+    const supported = await ExchangeFee.distinct('exchange');
+    return { error: `Exchange '${exchange}' not in our database. Supported: ${supported.sort().join(', ')}` };
+  }
 
   const coinData = doc.coins.find(c => c.symbol === coin.toUpperCase());
   if (!coinData) {
@@ -84,15 +87,15 @@ async function getWithdrawalFees({ exchange, coin }) {
     lastUpdated: doc.lastUpdated,
     dataAge: Math.round((Date.now() - new Date(doc.lastUpdated)) / 3600000) + ' hours ago',
     networks: sorted.map(n => ({
-      chain:          n.chain,
-      chainId:        n.chainId,
-      withdrawFee:    n.withdrawFee,
+      chain:              n.chain,
+      chainId:            n.chainId,
+      withdrawFee:        n.withdrawFee,
       withdrawFeeDisplay: `${n.withdrawFee} ${coinData.symbol}`,
-      withdrawFeeUSD: n.withdrawFeeUSD != null ? `~$${n.withdrawFeeUSD}` : 'unknown',
-      minWithdraw:    n.minWithdraw,
-      minDeposit:     n.minDeposit,
-      arrivalTime:    arrivalLabel(n.chainId),
-      warning:        feeWarning(n.withdrawFee, coinData.symbol),
+      withdrawFeeUSD:     n.withdrawFeeUSD != null ? `~$${n.withdrawFeeUSD}` : 'unknown',
+      minWithdraw:        n.minWithdraw,
+      minDeposit:         n.minDeposit,
+      arrivalTime:        arrivalLabel(n.chainId),
+      warning:            feeWarning(n.withdrawFee, coinData.symbol),
     })),
   };
 }
@@ -1299,21 +1302,24 @@ async function findP2PBestRate({ country, coin = 'USDT', direction }) {
   };
 }
 
-// ── 26. get_exchange_info ──────────────────────────────────────────────────
+// ── 26. get_exchange_info
 async function getExchangeInfo({ exchange }) {
   const doc = await ExchangeFee.findOne({ exchange: exchange.toLowerCase() });
-  if (!doc) return { error: `Exchange '${exchange}' not found. Supported: binance, bybit, coinex, bitget, kucoin, gateio` };
+  if (!doc) {
+    const supported = await ExchangeFee.distinct('exchange');
+    return { error: `Exchange '${exchange}' not found. Supported: ${supported.sort().join(', ')}` };
+  }
 
   return {
-    exchange:      doc.displayName,
-    website:       doc.website,
-    twitter:       doc.twitterHandle,
-    p2p:           doc.p2p,
-    p2pMinUSD:     doc.p2pMinUSD,
-    p2pCountries:  doc.p2pCountries,
-    coinsInDB:     doc.coins.length,
-    lastUpdated:   doc.lastUpdated,
-    dataSource:    doc.dataSource,
+    exchange:     doc.displayName,
+    website:      doc.website,
+    twitter:      doc.twitterHandle,
+    p2p:          doc.p2p,
+    p2pMinUSD:    doc.p2pMinUSD,
+    p2pCountries: doc.p2pCountries,
+    coinsInDB:    doc.coins.length,
+    lastUpdated:  doc.lastUpdated,
+    dataSource:   doc.dataSource,
   };
 }
 

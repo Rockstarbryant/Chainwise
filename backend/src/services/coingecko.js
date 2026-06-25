@@ -16,11 +16,13 @@ const EXCHANGE_CG_IDS = {
   bitget:  'bitget',
   kucoin:  'kucoin',
   gateio:  'gate',
-  okx:     'okx',
+  okx:     'okex',           // ← Fixed: was 'okx_spot'
   htx:     'htx',
+  huobi:   'htx',            // ← Already correct
   bingx:   'bingx',
   bitmart: 'bitmart',
-  mexc:    'mexc',
+  mexc:    'mxc',
+  kraken:  'kraken',
 };
 
 // Get all coins/tickers listed on a specific exchange from CoinGecko
@@ -69,6 +71,36 @@ async function getExchangeTickers(exchangeKey, page = 1) {
   }
 }
 
+// Fetch exchange metadata from CoinGecko
+async function getExchangeInfo(exchangeKey) {
+  const cgId = EXCHANGE_CG_IDS[exchangeKey.toLowerCase()];
+  if (!cgId) return { error: `No CoinGecko ID mapped for: ${exchangeKey}` };
+
+  try {
+    const data = await cgGet(`/exchanges/${cgId}`);
+    return {
+      name:            data.name,
+      website:         data.url,
+      twitterHandle:   data.twitter_handle,
+      description:     data.description,
+      country:         data.country,
+      yearEstablished: data.year_established,
+      image:           data.image,
+      trustScore:      data.trust_score,
+      trustScoreRank:  data.trust_score_rank,
+      centralized:     data.centralized,
+      totalCoins:      data.coins,
+      totalPairs:      data.pairs,
+      volume24hBTC:    data.trade_volume_24h_btc,
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    if (status === 404) return { error: `Exchange '${exchangeKey}' not found on CoinGecko` };
+    if (status === 429) return { error: 'CoinGecko rate limit hit. Wait 60 seconds.' };
+    return { error: `CoinGecko error: ${err.message}` };
+  }
+}
+
 async function cgGet(endpoint) {
   const cacheKey = endpoint;
   const hit = cache.get(cacheKey);
@@ -112,4 +144,4 @@ async function getPrice(coinId) {
   return data[coinId]?.usd ?? null;
 }
 
-module.exports = { resolveSymbol, getCoinPlatforms, getCoinTickers, getExchangeTickers, getPrice };
+module.exports = { resolveSymbol, getCoinPlatforms, getCoinTickers, getExchangeTickers, getPrice, getExchangeInfo };

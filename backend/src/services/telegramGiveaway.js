@@ -111,7 +111,7 @@ const TELEGRAM_CEX_CHANNELS = {
 
 // ─── Keyword Scoring (mirrors twitter.js KW tables) ──────────────────────────
 const KW = {
-  tier1:        ['giveaway', 'give away', 'airdrop', 'winner', 'winners', 'giveaways', 'token', 'vouchers', 'token voucher', 'share'],
+  tier1:        ['giveaway', 'give away', 'airdrop', 'winner', 'winners', 'giveaways', 'vouchers', 'token voucher', 'share'],
   tier2:        ['win ', 'prize', 'promo', 'promotion', 'campaign', 'event', 'bonus', 'reward', 'rewards', 'jackpot', 'raffle', 'quest', 'contest', 'competition', 'challenge', 'free', 'claim', 'claimable'],
   tier3:        ['celebrate', 'celebrating', 'anniversary', 'listing', 'launch', 'milestone', 'lucky', 'trading', 'traders', 'trader', 'trading competition', 'trading contest', 'trading challenge'],
   dollarPattern: /\$[\d,.]+/,
@@ -141,7 +141,7 @@ function scoreGiveaway(text) {
   for (const tag of KW.hashtags)     { if (lower.includes(tag)) { score += 8;  matched.add(tag); } }
 
   const actionHits = KW.action.filter(a => lower.includes(a));
-  if (actionHits.length >= 2) { score += 15; matched.add('join+action'); }
+  if (actionHits.length >= 2) { score += 25; matched.add('join+action'); }
 
   const finalScore = Math.min(score, 100);
   return { score: finalScore, confidence: parseFloat((finalScore / 100).toFixed(2)), keywords: [...matched] };
